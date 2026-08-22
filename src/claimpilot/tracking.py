@@ -5,7 +5,7 @@ from typing import Protocol
 
 from .models import ExceptionType, TrackingStatus, TrackingUpdate
 from .pipeline import Event, EventBus
-from .store import OrderStore, ProcessedEventStore, TrackingStateStore
+from .store import DeadLetterStore, OrderStore, ProcessedEventStore, TrackingStateStore
 
 
 class CarrierTrackingAdapter(Protocol):
@@ -44,6 +44,7 @@ def poll_tracking_updates(
     processed_events: ProcessedEventStore,
     bus: EventBus,
     now: datetime | None = None,
+    dead_letter_store: DeadLetterStore | None = None,
 ) -> list[str]:
     now = now or datetime.now(timezone.utc)
     emitted_order_ids: list[str] = []
@@ -52,7 +53,13 @@ def poll_tracking_updates(
         if not order.tracking_number:
             continue
 
-        update = tracker.fetch_status(order.order_id, order.tracking_number)
+        try:
+            update = tracker.fetch_status(order.order_id, order.tracking_number)
+        except Exception as exc:  # retryable carrier issues should never break the event loop
+            if dead_letter_store is not None:
+                dead_letter_store.add(order.order_id, str(exc), status="retry")
+            continue
+
         if update is None:
             continue
 

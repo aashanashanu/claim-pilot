@@ -3,6 +3,7 @@
 from .agent_runtime import RulesDecisionEngine, StrandsDecisionEngine
 from .config import AppConfig, DEFAULT_CONFIG
 from .decision_table import classify_exception
+from .demo_surface import DemoDashboard
 from .models import (
     ActionType,
     ExceptionType,
@@ -20,6 +21,7 @@ __all__ = [
     "AutoResolver",
     "DEFAULT_CONFIG",
     "DecisionNotifier",
+    "DemoDashboard",
     "ExceptionType",
     "MailMessage",
     "Order",

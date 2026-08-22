@@ -19,6 +19,11 @@ class DecisionNotificationWorker(Protocol):
         ...
 
 
+class DecisionCaptureWorker(Protocol):
+    def capture(self, payload: dict[str, object]) -> tuple[str, str]:
+        ...
+
+
 def register_handlers(
     bus: EventBus,
     order_store: OrderStore,
@@ -26,6 +31,7 @@ def register_handlers(
     decision_engine: DecisionEngine | None = None,
     resolution_worker: AutoResolutionWorker | None = None,
     notification_worker: DecisionNotificationWorker | None = None,
+    decision_capture_worker: DecisionCaptureWorker | None = None,
 ) -> None:
     decision_engine = decision_engine or RulesDecisionEngine()
     bus.subscribe("OrderDetected", lambda e: handle_order_detected(e, order_store, audit_store))
@@ -40,6 +46,10 @@ def register_handlers(
     bus.subscribe(
         "NeedsDecision",
         lambda e: handle_needs_decision(e, audit_store, notification_worker),
+    )
+    bus.subscribe(
+        "DecisionCaptured",
+        lambda e: handle_decision_captured(e, audit_store, decision_capture_worker),
     )
 
 
@@ -141,6 +151,27 @@ def handle_needs_decision(
             order_id=str(event.payload["order_id"]),
             user_id=str(event.payload["user_id"]),
             action="needs_decision",
+            status=status,
+            details=details,
+        )
+    )
+
+
+def handle_decision_captured(
+    event: Event,
+    audit_store: AuditStore,
+    decision_capture_worker: DecisionCaptureWorker | None = None,
+) -> None:
+    status = "approved"
+    details = "Decision captured."
+    if decision_capture_worker is not None:
+        status, details = decision_capture_worker.capture(event.payload)
+
+    audit_store.add(
+        AuditRecord(
+            order_id=str(event.payload["order_id"]),
+            user_id=str(event.payload["user_id"]),
+            action="decision_captured",
             status=status,
             details=details,
         )

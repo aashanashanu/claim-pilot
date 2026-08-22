@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from claimpilot.models import Order, TrackingStatus, TrackingUpdate
 from claimpilot.pipeline import EventBus
-from claimpilot.store import OrderStore, ProcessedEventStore, TrackingStateStore
+from claimpilot.store import DeadLetterStore, OrderStore, ProcessedEventStore, TrackingStateStore
 from claimpilot.tracking import poll_tracking_updates
 
 
@@ -96,3 +96,47 @@ def test_poll_tracking_skips_duplicate_fingerprint_updates():
     assert second == []
     status_events = [e for e in bus.published if e.topic == "StatusChanged"]
     assert len(status_events) == 1
+
+
+def test_poll_tracking_records_retryable_errors_in_dead_letter_store():
+    now = datetime(2026, 8, 20, 12, 0, 0, tzinfo=timezone.utc)
+    order = Order(
+        order_id="ord-track-3",
+        user_id="user-3",
+        item_name="Chair",
+        purchase_price=120.0,
+        current_price=120.0,
+        purchased_at=now - timedelta(days=4),
+        return_window_days=30,
+        expected_delivery_at=now - timedelta(days=2),
+        carrier="USPS",
+        tracking_number="TRK-3",
+    )
+
+    class FailingTracker:
+        def fetch_status(self, order_id: str, tracking_number: str) -> TrackingUpdate | None:
+            raise RuntimeError("temporary carrier timeout")
+
+    order_store = OrderStore()
+    order_store.upsert(order)
+    state_store = TrackingStateStore()
+    dedupe = ProcessedEventStore()
+    bus = EventBus()
+    dead_letter_store = DeadLetterStore()
+
+    emitted = poll_tracking_updates(
+        order_store,
+        FailingTracker(),
+        state_store,
+        dedupe,
+        bus,
+        now=now,
+        dead_letter_store=dead_letter_store,
+    )
+
+    assert emitted == []
+    entries = dead_letter_store.all()
+    assert len(entries) == 1
+    assert entries[0]["order_id"] == "ord-track-3"
+    assert entries[0]["status"] == "retry"
+    assert "temporary carrier timeout" in entries[0]["reason"]

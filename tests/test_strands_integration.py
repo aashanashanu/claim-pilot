@@ -5,7 +5,14 @@ from claimpilot.handlers import register_handlers
 from claimpilot.models import ActionType, ExceptionType, Order, ResolutionDecision
 from claimpilot.pipeline import Event, EventBus
 from claimpilot.store import AuditStore, OrderStore
-from claimpilot.workers import AutoResolver, DecisionNotifier, MockClaimActionAdapter, MockNotificationAdapter
+from claimpilot.workers import (
+    AutoResolver,
+    DecisionCapture,
+    DecisionNotifier,
+    MockClaimActionAdapter,
+    MockDecisionCaptureAdapter,
+    MockNotificationAdapter,
+)
 
 
 def _make_order(order_id: str, price: float = 80.0) -> Order:
@@ -122,10 +129,41 @@ def test_strands_engine_uses_real_agent_object_when_provided():
     assert fake_agent.prompts
 
 
+def test_decision_capture_records_user_choice_and_audit_entry():
+    bus = EventBus()
+    order_store = OrderStore()
+    audit_store = AuditStore()
+    capture_worker = DecisionCapture(adapter=MockDecisionCaptureAdapter())
+    register_handlers(
+        bus,
+        order_store,
+        audit_store,
+        decision_capture_worker=capture_worker,
+    )
+
+    order = _make_order("ord-s-4", price=220.0)
+    bus.publish(Event(topic="OrderDetected", payload={"order": order}))
+    bus.publish(
+        Event(
+            topic="DecisionCaptured",
+            payload={
+                "order_id": order.order_id,
+                "user_id": order.user_id,
+                "decision": "approve_photo",
+                "reason": "Photo evidence is valid.",
+            },
+        )
+    )
+
+    decision_record = [x for x in audit_store.all() if x.action == "decision_captured"][0]
+    assert decision_record.status == "approved"
+    assert "Decision captured" in decision_record.details
+
+
 def test_strands_engine_falls_back_to_rules_when_not_configured():
     engine = StrandsDecisionEngine(agent_callable=None)
 
-    order = _make_order("ord-s-4")
+    order = _make_order("ord-s-5")
     order.current_price = 60.0
     decision = engine.decide(order=order, exception_type=ExceptionType.PRICE_DROP)
 

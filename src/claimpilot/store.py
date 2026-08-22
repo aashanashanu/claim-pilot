@@ -57,3 +57,18 @@ class TrackingStateStore:
             return False
         self._states[order_id] = new_status
         return True
+
+
+class DeadLetterStore:
+    def __init__(self) -> None:
+        self._entries: list[dict[str, str]] = []
+
+    def add(self, order_id: str, reason: str, status: str = "retry") -> None:
+        self._entries.append({
+            "order_id": order_id,
+            "reason": reason,
+            "status": status,
+        })
+
+    def all(self) -> list[dict[str, str]]:
+        return list(self._entries)
