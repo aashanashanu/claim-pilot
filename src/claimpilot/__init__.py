@@ -1,6 +1,7 @@
 """ClaimPilot MVP core package."""
 
 from .agent_runtime import RulesDecisionEngine, StrandsDecisionEngine
+from .config import AppConfig, DEFAULT_CONFIG
 from .decision_table import classify_exception
 from .models import (
     ActionType,
@@ -15,7 +16,9 @@ from .workers import AutoResolver, DecisionNotifier
 
 __all__ = [
     "ActionType",
+    "AppConfig",
     "AutoResolver",
+    "DEFAULT_CONFIG",
     "DecisionNotifier",
     "ExceptionType",
     "MailMessage",

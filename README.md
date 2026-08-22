@@ -7,9 +7,11 @@ This repository contains implementation code plus a full documentation package f
 ## Current Implementation Status
 
 - Event-driven in-memory pipeline (`OrderDetected`, `StatusChanged`, `AutoResolve`, `NeedsDecision`)
-- Rule-based exception classifier aligned to hackathon build plan
-- Basic handlers with auditable action records
-- Demo seed runner and initial tests
+- Decision table for the three locked MVP beats
+- Auditable action records across classify and resolve flows
+- Real Strands-compatible decision engine with safe rule fallback
+- Demo seed runner and focused integration tests
+- Phase 0 rule lock and scope freeze captured in [docs/05-phase-0-step-1-scope-freeze.md](docs/05-phase-0-step-1-scope-freeze.md)
 
 ## Documentation Pack
 
@@ -43,5 +45,6 @@ python -m claimpilot.demo_seed
 
 ## Notes
 
-- This is Phase 1 bootstrap code.
-- External integrations (Gmail, carrier API, AWS services, Strands SDK runtime wiring) are next.
+- Phase 0 scope lock is complete and documented.
+- Phase 1 core runtime is in progress and includes a real Strands-compatible decision path.
+- External integrations (Gmail, carrier API, production AWS credentials) remain for the next implementation stage.

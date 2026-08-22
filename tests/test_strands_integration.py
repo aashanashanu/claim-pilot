@@ -102,10 +102,30 @@ def test_strands_engine_routes_to_needs_decision_and_executes_notifier():
     assert "Decision request sent" in decision_record.details
 
 
+def test_strands_engine_uses_real_agent_object_when_provided():
+    class FakeAgent:
+        def __init__(self) -> None:
+            self.prompts: list[str] = []
+
+        def __call__(self, prompt: str, **kwargs: object) -> str:
+            self.prompts.append(prompt)
+            return '{"action": "needs_decision", "reason": "Photo evidence required.", "metadata": {"source": "agent"}}'
+
+    fake_agent = FakeAgent()
+    engine = StrandsDecisionEngine(agent=fake_agent)
+
+    order = _make_order("ord-s-3", price=220.0)
+    decision = engine.decide(order=order, exception_type=ExceptionType.DAMAGED_ITEM)
+
+    assert decision.action is ActionType.NEEDS_DECISION
+    assert decision.metadata["decision_source"] == "strands"
+    assert fake_agent.prompts
+
+
 def test_strands_engine_falls_back_to_rules_when_not_configured():
     engine = StrandsDecisionEngine(agent_callable=None)
 
-    order = _make_order("ord-s-3")
+    order = _make_order("ord-s-4")
     order.current_price = 60.0
     decision = engine.decide(order=order, exception_type=ExceptionType.PRICE_DROP)
 
