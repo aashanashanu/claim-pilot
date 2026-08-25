@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Protocol
 
-from strands import Agent
-from strands.models import BedrockModel
+try:
+    from strands import Agent
+    from strands.models import BedrockModel
+except ModuleNotFoundError:  # pragma: no cover - optional dependency for local/dev runs
+    Agent = None  # type: ignore[assignment]
+    BedrockModel = None  # type: ignore[assignment]
 
 from .config import DEFAULT_CONFIG
-from .decision_table import classify_exception
 from .models import ActionType, ExceptionType, Order, ResolutionDecision
 
 
@@ -23,23 +25,6 @@ class DecisionEngine(Protocol):
         now: datetime | None = None,
     ) -> ResolutionDecision:
         ...
-
-
-@dataclass(slots=True)
-class RulesDecisionEngine:
-    def decide(
-        self,
-        order: Order,
-        exception_type: ExceptionType,
-        evidence_quality: str = "strong",
-        now: datetime | None = None,
-    ) -> ResolutionDecision:
-        return classify_exception(
-            order=order,
-            exception_type=exception_type,
-            evidence_quality=evidence_quality,
-            now=now,
-        )
 
 
 def _parse_agent_output(raw_result: Any) -> dict[str, Any] | None:
@@ -97,11 +82,10 @@ def create_default_strands_agent(
     aws_secret_access_key: str | None = None,
     aws_session_token: str | None = None,
     **model_kwargs: Any,
-) -> Agent | None:
-    """Create a real Strands + Bedrock agent when AWS credentials are available.
+) -> Agent:
+    """Create a real Strands + Bedrock agent.
 
-    If credentials are not configured, return None so the project remains runnable in local
-    or CI environments without cloud access.
+    This function is strict by design and raises when required runtime pieces are missing.
     """
     config = DEFAULT_CONFIG
     aws_access_key_id = aws_access_key_id or config.aws_access_key_id or os.getenv("AWS_ACCESS_KEY_ID")
@@ -110,8 +94,15 @@ def create_default_strands_agent(
     region_name = region_name or config.aws_region or config.aws_default_region or os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION")
     model_id = model_id or config.claimpilot_model_id or os.getenv("CLAIMPILOT_MODEL_ID") or "global.anthropic.claude-sonnet-4-6"
 
+    if Agent is None or BedrockModel is None:
+        raise RuntimeError(
+            "Strands SDK is not installed. Install 'strands-agents' and required model dependencies."
+        )
+
     if not aws_access_key_id or not aws_secret_access_key:
-        return None
+        raise RuntimeError(
+            "Missing AWS credentials for Strands runtime. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY."
+        )
 
     if not region_name:
         region_name = "us-west-2"
@@ -137,26 +128,26 @@ def create_default_strands_agent(
 
 
 class StrandsDecisionEngine:
-    """Bridge for real Strands-backed decisions with safe rule fallback.
+    """Bridge for real Strands-backed decisions.
 
     Accepts either a callable returning a decision payload, or a real `strands.Agent`
-    instance that can be invoked with a natural-language prompt. The engine always falls
-    back to the deterministic rule engine when no active agent is configured or when the
-    agent result is malformed.
+    instance that can be invoked with a natural-language prompt.
     """
 
     def __init__(
         self,
         agent_callable: Callable[[dict[str, object]], ResolutionDecision | dict[str, object] | str | Any] | None = None,
-        fallback: DecisionEngine | None = None,
         agent: Any | None = None,
         *,
         model: Any | None = None,
     ) -> None:
         self._agent_callable = agent_callable
         self._agent = agent
-        self._fallback = fallback or RulesDecisionEngine()
         self._model = model
+        if self._agent is None and self._agent_callable is None and self._model is None:
+            raise RuntimeError(
+                "StrandsDecisionEngine requires a configured Strands agent, model, or callable."
+            )
 
     def _build_agent_prompt(
         self,
@@ -184,11 +175,6 @@ class StrandsDecisionEngine:
         evidence_quality: str = "strong",
         now: datetime | None = None,
     ) -> ResolutionDecision:
-        if self._agent is None and self._agent_callable is None and self._model is None:
-            decision = self._fallback.decide(order, exception_type, evidence_quality, now)
-            decision.metadata.setdefault("decision_source", "rules_fallback")
-            return decision
-
         payload = {
             "order": order,
             "exception_type": exception_type.value,
@@ -196,42 +182,41 @@ class StrandsDecisionEngine:
             "now": now,
         }
 
-        try:
-            if self._agent is not None:
-                result = self._agent(
-                    self._build_agent_prompt(order, exception_type, evidence_quality, now),
-                    structured_output_model=None,
-                )
-            elif self._model is not None:
-                agent = Agent(model=self._model, system_prompt=CLAIMPILOT_SYSTEM_PROMPT)
-                result = agent(
-                    self._build_agent_prompt(order, exception_type, evidence_quality, now),
-                    structured_output_model=None,
-                )
-            else:
-                result = self._agent_callable(payload)
-
-            parsed = _parse_agent_output(result)
-            if parsed is None:
-                raise ValueError("Agent result was empty or malformed.")
-
-            action_raw = str(parsed.get("action", ActionType.NEEDS_DECISION.value))
-            action = ActionType(action_raw)
-            reason = str(parsed.get("reason", "No reason provided by Strands agent."))
-            metadata_raw = parsed.get("metadata", {})
-            metadata: dict[str, str] = {}
-            if isinstance(metadata_raw, dict):
-                metadata = {str(k): str(v) for k, v in metadata_raw.items()}
-            metadata.setdefault("decision_source", "strands")
-
-            return ResolutionDecision(
-                order_id=order.order_id,
-                exception_type=exception_type,
-                action=action,
-                reason=reason,
-                metadata=metadata,
+        if self._agent is not None:
+            result = self._agent(
+                self._build_agent_prompt(order, exception_type, evidence_quality, now),
+                structured_output_model=None,
             )
-        except Exception:
-            decision = self._fallback.decide(order, exception_type, evidence_quality, now)
-            decision.metadata.setdefault("decision_source", "rules_fallback")
-            return decision
+        elif self._model is not None:
+            if Agent is None:
+                raise RuntimeError("Strands SDK is not installed; cannot build runtime agent from model.")
+            agent = Agent(model=self._model, system_prompt=CLAIMPILOT_SYSTEM_PROMPT)
+            result = agent(
+                self._build_agent_prompt(order, exception_type, evidence_quality, now),
+                structured_output_model=None,
+            )
+        elif self._agent_callable is not None:
+            result = self._agent_callable(payload)
+        else:
+            raise RuntimeError("No active Strands runtime configured.")
+
+        parsed = _parse_agent_output(result)
+        if parsed is None:
+            raise ValueError("Agent result was empty or malformed.")
+
+        action_raw = str(parsed.get("action", ActionType.NEEDS_DECISION.value))
+        action = ActionType(action_raw)
+        reason = str(parsed.get("reason", "No reason provided by Strands agent."))
+        metadata_raw = parsed.get("metadata", {})
+        metadata: dict[str, str] = {}
+        if isinstance(metadata_raw, dict):
+            metadata = {str(k): str(v) for k, v in metadata_raw.items()}
+        metadata.setdefault("decision_source", "strands")
+
+        return ResolutionDecision(
+            order_id=order.order_id,
+            exception_type=exception_type,
+            action=action,
+            reason=reason,
+            metadata=metadata,
+        )

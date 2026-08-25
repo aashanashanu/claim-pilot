@@ -77,4 +77,5 @@ class AuditRecord:
     action: str
     status: str
     details: str
+    metadata: dict[str, str] = field(default_factory=dict)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))

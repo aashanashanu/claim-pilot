@@ -1,9 +1,10 @@
 """ClaimPilot MVP core package."""
 
-from .agent_runtime import RulesDecisionEngine, StrandsDecisionEngine
+from .agent_runtime import StrandsDecisionEngine
 from .config import AppConfig, DEFAULT_CONFIG
 from .decision_table import classify_exception
 from .demo_surface import DemoDashboard
+from .desktop_ui import DemoDesktopApp, DemoDesktopController
 from .models import (
     ActionType,
     ExceptionType,
@@ -22,11 +23,12 @@ __all__ = [
     "DEFAULT_CONFIG",
     "DecisionNotifier",
     "DemoDashboard",
+    "DemoDesktopApp",
+    "DemoDesktopController",
     "ExceptionType",
     "MailMessage",
     "Order",
     "ResolutionDecision",
-    "RulesDecisionEngine",
     "StrandsDecisionEngine",
     "TrackingStatus",
     "TrackingUpdate",

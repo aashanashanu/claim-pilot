@@ -1,5 +1,8 @@
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
+import claimpilot.agent_runtime as agent_runtime
 from claimpilot.agent_runtime import StrandsDecisionEngine
 from claimpilot.handlers import register_handlers
 from claimpilot.models import ActionType, ExceptionType, Order, ResolutionDecision
@@ -130,6 +133,12 @@ def test_strands_engine_uses_real_agent_object_when_provided():
 
 
 def test_decision_capture_records_user_choice_and_audit_entry():
+    mock_engine = StrandsDecisionEngine(
+        agent_callable=lambda payload: {
+            "action": ActionType.NEEDS_DECISION.value,
+            "reason": "Mocked decision for capture-only flow.",
+        }
+    )
     bus = EventBus()
     order_store = OrderStore()
     audit_store = AuditStore()
@@ -138,6 +147,7 @@ def test_decision_capture_records_user_choice_and_audit_entry():
         bus,
         order_store,
         audit_store,
+        decision_engine=mock_engine,
         decision_capture_worker=capture_worker,
     )
 
@@ -160,12 +170,21 @@ def test_decision_capture_records_user_choice_and_audit_entry():
     assert "Decision captured" in decision_record.details
 
 
-def test_strands_engine_falls_back_to_rules_when_not_configured():
-    engine = StrandsDecisionEngine(agent_callable=None)
+def test_strands_engine_requires_runtime_configuration():
+    try:
+        StrandsDecisionEngine(agent_callable=None)
+        raise AssertionError("Expected a runtime configuration error.")
+    except RuntimeError as exc:
+        assert "requires a configured Strands agent" in str(exc)
 
-    order = _make_order("ord-s-5")
-    order.current_price = 60.0
-    decision = engine.decide(order=order, exception_type=ExceptionType.PRICE_DROP)
 
-    assert decision.action is ActionType.AUTO_RESOLVE
-    assert decision.metadata["decision_source"] == "rules_fallback"
+def test_create_default_strands_agent_raises_when_sdk_missing(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(agent_runtime, "Agent", None)
+    monkeypatch.setattr(agent_runtime, "BedrockModel", None)
+
+    with pytest.raises(RuntimeError, match="Strands SDK is not installed"):
+        agent_runtime.create_default_strands_agent(
+            aws_access_key_id="key",
+            aws_secret_access_key="secret",
+            region_name="us-west-2",
+        )

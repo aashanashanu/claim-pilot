@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Protocol
 
-from .agent_runtime import DecisionEngine, RulesDecisionEngine
+from .agent_runtime import DecisionEngine, StrandsDecisionEngine, create_default_strands_agent
 from .models import ActionType, AuditRecord, ExceptionType, Order
 from .pipeline import Event, EventBus
 from .store import AuditStore, OrderStore
@@ -33,7 +33,7 @@ def register_handlers(
     notification_worker: DecisionNotificationWorker | None = None,
     decision_capture_worker: DecisionCaptureWorker | None = None,
 ) -> None:
-    decision_engine = decision_engine or RulesDecisionEngine()
+    decision_engine = decision_engine or StrandsDecisionEngine(agent=create_default_strands_agent())
     bus.subscribe("OrderDetected", lambda e: handle_order_detected(e, order_store, audit_store))
     bus.subscribe(
         "StatusChanged",
@@ -89,6 +89,7 @@ def handle_status_changed(
         evidence_quality=evidence_quality,
         now=datetime.now(timezone.utc),
     )
+    decision_source = decision.metadata.get("decision_source", "unknown")
 
     topic = "AutoResolve" if decision.action is ActionType.AUTO_RESOLVE else "NeedsDecision"
     bus.publish(
@@ -110,7 +111,8 @@ def handle_status_changed(
             user_id=order.user_id,
             action="exception_classified",
             status="success",
-            details=f"{decision.exception_type.value} -> {decision.action.value}",
+            details=f"{decision.exception_type.value} -> {decision.action.value} [{decision_source}] {decision.reason}",
+            metadata=decision.metadata,
         )
     )
 
@@ -132,6 +134,7 @@ def handle_auto_resolve(
             action="auto_resolve",
             status=status,
             details=details,
+            metadata={str(k): str(v) for k, v in dict(event.payload.get("metadata", {})).items()},
         )
     )
 
@@ -153,6 +156,7 @@ def handle_needs_decision(
             action="needs_decision",
             status=status,
             details=details,
+            metadata={str(k): str(v) for k, v in dict(event.payload.get("metadata", {})).items()},
         )
     )
 

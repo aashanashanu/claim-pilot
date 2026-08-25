@@ -1,17 +1,24 @@
 # ClaimPilot
 
-ClaimPilot is an everyday agent that watches post-purchase orders, auto-resolves safe exceptions, and asks for user input only when judgment is required.
+ClaimPilot is a demo-friendly post-purchase exception handling system that watches orders, auto-resolves safe issues, and asks for user input only when required.
 
-This repository contains implementation code plus a full documentation package for all build phases and submission readiness.
+This repository contains the MVP backend, a React demo dashboard, and the AWS deployment setup needed to run the project end-to-end without heavy infrastructure.
 
 ## Current Implementation Status
 
-- Event-driven in-memory pipeline (`OrderDetected`, `StatusChanged`, `AutoResolve`, `NeedsDecision`)
-- Decision table for the three locked MVP beats
-- Auditable action records across classify and resolve flows
-- Real Strands-compatible decision engine with safe rule fallback
-- Demo seed runner and focused integration tests
-- Phase 0 rule lock and scope freeze captured in [docs/05-phase-0-step-1-scope-freeze.md](docs/05-phase-0-step-1-scope-freeze.md)
+- Event-driven core pipeline with `OrderDetected`, `StatusChanged`, `AutoResolve`, and `NeedsDecision`
+- Decision table for the three locked MVP beats: price drop, damaged item, return window closing
+- React-powered desktop/demo dashboard connected to the backend API
+- FastAPI API for live scenario triggering and audit snapshot reads
+- Cost-optimized AWS deployment path using App Runner, S3, CloudFront, and ECR
+- Focused automated tests for the backend demo service and dashboard logic
+
+## Architecture Overview
+
+- Backend: Python FastAPI app with in-memory event pipeline
+- Frontend: React + Vite app served from S3 + CloudFront
+- AWS runtime: App Runner for the API, CloudFront + S3 for UI
+- Demo mode: No production data stores or expensive orchestration required
 
 ## Documentation Pack
 
@@ -21,16 +28,97 @@ This repository contains implementation code plus a full documentation package f
 - Submission checklist: [docs/04-submission-requirements.md](docs/04-submission-requirements.md)
 - Phase 0 Step 1 artifact: [docs/05-phase-0-step-1-scope-freeze.md](docs/05-phase-0-step-1-scope-freeze.md)
 - Demo and judging playbook: [docs/06-demo-and-judging-playbook.md](docs/06-demo-and-judging-playbook.md)
+- AWS demo deployment guide: [docs/07-aws-demo-deployment.md](docs/07-aws-demo-deployment.md)
 
-## Quick start
+## Quick Start
+
+### Local backend + dashboard
 
 ```bash
-python -m venv .venv
+cd /Users/aashanashanu/Documents/projects/self/claim-pilot
+python3 -m venv .venv
 source .venv/bin/activate
-pip install -e .[dev]
-pytest
-python -m claimpilot.demo_seed
+pip install -e .
+python -m pytest
+uvicorn claimpilot.api:app --host 0.0.0.0 --port 8000
 ```
+
+Then, in a second terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev -- --host 0.0.0.0
+```
+
+Set the frontend environment if needed:
+
+```bash
+cp frontend/.env.example frontend/.env
+```
+
+Default API URL:
+
+```bash
+VITE_API_BASE=http://localhost:8000
+```
+
+Phase 2 Gmail ingestion endpoint:
+
+```bash
+# Required once: set OAuth client credentials and token file paths
+export GMAIL_CREDENTIALS_FILE=/absolute/path/to/google-client-secret.json
+export GMAIL_TOKEN_FILE=/absolute/path/to/.gmail-token.json
+
+# Ingest real Gmail inbox messages (read-only scope)
+curl -X POST "http://localhost:8000/integrations/email/gmail/ingest?user_id=user-demo&max_results=3"
+
+# Validate Gmail token/dependency readiness
+curl -X GET "http://localhost:8000/health/gmail"
+```
+
+Optional Gmail filter query (defaults to `newer_than:14d`):
+
+```bash
+export CLAIMPILOT_GMAIL_QUERY='newer_than:7d (subject:(order OR shipped OR delivery OR receipt))'
+```
+
+### AWS demo deployment
+
+Prerequisites:
+
+```bash
+export AWS_ACCOUNT_ID=123456789012
+export AWS_REGION=us-west-2
+```
+
+Then run:
+
+```bash
+chmod +x scripts/deploy-demo.sh
+./scripts/deploy-demo.sh
+```
+
+Or use Terraform directly:
+
+```bash
+terraform -chdir=infra/aws init
+terraform -chdir=infra/aws apply
+```
+
+## AWS Deployment Architecture
+
+This is the recommended demo-ready setup:
+
+- S3 + CloudFront: React UI
+- App Runner: FastAPI backend
+- ECR: container image registry
+- Terraform: infrastructure definition and teardown
+- Secrets Manager: Strands/Bedrock credentials injection
+
+This is intentionally smaller and cheaper than a full ECS + RDS + Lambda architecture while still being realistic enough for a live demo.
+
+The App Runner container loads the AWS credentials from AWS Secrets Manager, and the Strands runtime uses them to call Bedrock when `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_REGION` are present. This build requires a configured Strands runtime and does not use a deterministic rules fallback.
 
 ## Project Phases
 
@@ -45,6 +133,6 @@ python -m claimpilot.demo_seed
 
 ## Notes
 
-- Phase 0 scope lock is complete and documented.
-- Phase 1 core runtime is in progress and includes a real Strands-compatible decision path.
-- External integrations (Gmail, carrier API, production AWS credentials) remain for the next implementation stage.
+- Local and deployed demo runs require Strands runtime dependencies and AWS credentials for Bedrock access.
+- Real Strands + Bedrock integration is mandatory in this build.
+- This repo is intentionally optimized for a hackathon demo and a low-cost cloud deployment path.

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from .decision_table import classify_exception
+from .agent_runtime import StrandsDecisionEngine, create_default_strands_agent
 from .handlers import register_handlers
 from .models import ActionType, ExceptionType, Order
 from .pipeline import Event, EventBus
@@ -13,11 +13,19 @@ from .store import AuditStore, OrderStore
 class DemoDashboard:
     """Minimal operator dashboard used for deterministic hackathon demos."""
 
-    def __init__(self) -> None:
+    def __init__(self, decision_engine: StrandsDecisionEngine | None = None) -> None:
         self.bus = EventBus()
         self.order_store = OrderStore()
         self.audit_store = AuditStore()
-        register_handlers(self.bus, self.order_store, self.audit_store)
+        self.decision_engine = decision_engine or StrandsDecisionEngine(
+            agent=create_default_strands_agent()
+        )
+        register_handlers(
+            self.bus,
+            self.order_store,
+            self.audit_store,
+            decision_engine=self.decision_engine,
+        )
 
     def trigger_scenario(self, scenario: str, *, order: Order | None = None) -> dict[str, Any]:
         if scenario == "price_drop":
@@ -33,12 +41,7 @@ class DemoDashboard:
                     },
                 )
             )
-            decision = classify_exception(target, ExceptionType.PRICE_DROP, now=datetime.now(timezone.utc))
-            return {
-                "action": decision.action.value,
-                "reason": decision.reason,
-                "order_id": target.order_id,
-            }
+            return self._latest_outcome(target.order_id)
 
         if scenario == "damaged_item":
             target = order or self._make_damaged_item_order()
@@ -53,12 +56,7 @@ class DemoDashboard:
                     },
                 )
             )
-            decision = classify_exception(target, ExceptionType.DAMAGED_ITEM, now=datetime.now(timezone.utc))
-            return {
-                "action": decision.action.value,
-                "reason": decision.reason,
-                "order_id": target.order_id,
-            }
+            return self._latest_outcome(target.order_id)
 
         if scenario == "return_window":
             target = order or self._make_return_window_order()
@@ -73,14 +71,36 @@ class DemoDashboard:
                     },
                 )
             )
-            decision = classify_exception(target, ExceptionType.RETURN_WINDOW_CLOSING, now=datetime.now(timezone.utc))
-            return {
-                "action": decision.action.value,
-                "reason": decision.reason,
-                "order_id": target.order_id,
-            }
+            return self._latest_outcome(target.order_id)
 
         raise ValueError(f"Unknown scenario: {scenario}")
+
+    def _latest_outcome(self, order_id: str) -> dict[str, Any]:
+        outcome_actions = {ActionType.AUTO_RESOLVE.value, ActionType.NEEDS_DECISION.value}
+        for record in reversed(self.audit_store.all()):
+            if record.order_id == order_id and record.action in outcome_actions:
+                return {
+                    "action": record.action,
+                    "status": record.status,
+                    "reason": record.details,
+                    "order_id": order_id,
+                }
+
+        for record in reversed(self.audit_store.all()):
+            if record.order_id == order_id:
+                return {
+                    "action": record.action,
+                    "status": record.status,
+                    "reason": record.details,
+                    "order_id": order_id,
+                }
+
+        return {
+            "action": "idle",
+            "status": "idle",
+            "reason": "No outcome recorded yet.",
+            "order_id": order_id,
+        }
 
     def render(self) -> str:
         orders = self.order_store.all()

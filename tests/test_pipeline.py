@@ -1,9 +1,32 @@
 from datetime import datetime, timedelta, timezone
 
+from claimpilot.agent_runtime import StrandsDecisionEngine
 from claimpilot.handlers import register_handlers
-from claimpilot.models import ExceptionType, Order
+from claimpilot.models import ActionType, ExceptionType, Order, ResolutionDecision
 from claimpilot.pipeline import Event, EventBus
 from claimpilot.store import AuditStore, OrderStore
+
+
+def _mock_engine() -> StrandsDecisionEngine:
+    def agent_callable(payload: dict[str, object]) -> ResolutionDecision:
+        order = payload["order"]
+        assert isinstance(order, Order)
+        exception_type = ExceptionType(str(payload["exception_type"]))
+        if exception_type is ExceptionType.PRICE_DROP:
+            return ResolutionDecision(
+                order_id=order.order_id,
+                exception_type=exception_type,
+                action=ActionType.AUTO_RESOLVE,
+                reason="Mock Strands auto decision.",
+            )
+        return ResolutionDecision(
+            order_id=order.order_id,
+            exception_type=exception_type,
+            action=ActionType.NEEDS_DECISION,
+            reason="Mock Strands asks for user decision.",
+        )
+
+    return StrandsDecisionEngine(agent_callable=agent_callable)
 
 
 def test_pipeline_routes_to_auto_resolve_for_price_drop():
@@ -22,7 +45,7 @@ def test_pipeline_routes_to_auto_resolve_for_price_drop():
     bus = EventBus()
     order_store = OrderStore()
     audit_store = AuditStore()
-    register_handlers(bus, order_store, audit_store)
+    register_handlers(bus, order_store, audit_store, decision_engine=_mock_engine())
 
     bus.publish(Event(topic="OrderDetected", payload={"order": order}))
     bus.publish(
@@ -54,7 +77,7 @@ def test_pipeline_routes_to_needs_decision_for_damaged_item():
     bus = EventBus()
     order_store = OrderStore()
     audit_store = AuditStore()
-    register_handlers(bus, order_store, audit_store)
+    register_handlers(bus, order_store, audit_store, decision_engine=_mock_engine())
 
     bus.publish(Event(topic="OrderDetected", payload={"order": order}))
     bus.publish(

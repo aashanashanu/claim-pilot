@@ -1,7 +1,32 @@
 from datetime import datetime, timedelta, timezone
 
+from claimpilot.agent_runtime import StrandsDecisionEngine
 from claimpilot.demo_surface import DemoDashboard
-from claimpilot.models import ExceptionType, Order
+from claimpilot.models import ActionType, ExceptionType, Order, ResolutionDecision
+
+
+def _mock_engine() -> StrandsDecisionEngine:
+    def agent_callable(payload: dict[str, object]) -> ResolutionDecision:
+        order = payload["order"]
+        assert isinstance(order, Order)
+        exception_raw = str(payload["exception_type"])
+        exception_type = ExceptionType(exception_raw)
+        if exception_type is ExceptionType.PRICE_DROP:
+            return ResolutionDecision(
+                order_id=order.order_id,
+                exception_type=exception_type,
+                action=ActionType.AUTO_RESOLVE,
+                reason="Mock Strands auto decision.",
+            )
+
+        return ResolutionDecision(
+            order_id=order.order_id,
+            exception_type=exception_type,
+            action=ActionType.NEEDS_DECISION,
+            reason="Mock Strands asks for user decision.",
+        )
+
+    return StrandsDecisionEngine(agent_callable=agent_callable)
 
 
 def _make_order(order_id: str, *, exception_type: ExceptionType | None = None, current_price: float | None = None) -> Order:
@@ -28,7 +53,7 @@ def _make_order(order_id: str, *, exception_type: ExceptionType | None = None, c
 
 
 def test_demo_dashboard_auto_resolve_scenario_renders_summary():
-    dashboard = DemoDashboard()
+    dashboard = DemoDashboard(decision_engine=_mock_engine())
     order = _make_order("ord-demo-1", exception_type=ExceptionType.PRICE_DROP, current_price=88.0)
 
     result = dashboard.trigger_scenario("price_drop", order=order)
@@ -40,7 +65,7 @@ def test_demo_dashboard_auto_resolve_scenario_renders_summary():
 
 
 def test_demo_dashboard_needs_decision_scenario_tracks_pending_action():
-    dashboard = DemoDashboard()
+    dashboard = DemoDashboard(decision_engine=_mock_engine())
     order = _make_order("ord-demo-2", exception_type=ExceptionType.DAMAGED_ITEM)
 
     result = dashboard.trigger_scenario("damaged_item", order=order)
@@ -51,11 +76,11 @@ def test_demo_dashboard_needs_decision_scenario_tracks_pending_action():
 
 
 def test_demo_dashboard_return_window_scenario_prompts_user_decision():
-    dashboard = DemoDashboard()
+    dashboard = DemoDashboard(decision_engine=_mock_engine())
     order = _make_order("ord-demo-3", exception_type=ExceptionType.RETURN_WINDOW_CLOSING)
 
     result = dashboard.trigger_scenario("return_window", order=order)
 
     assert result["action"] == "needs_decision"
-    assert "return window" in result["reason"].lower()
+    assert "strands" in result["reason"].lower()
     assert "needs_decision" in dashboard.render().lower()
