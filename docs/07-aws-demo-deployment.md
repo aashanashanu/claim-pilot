@@ -9,7 +9,11 @@ This project is designed to run in a cost-optimized demo configuration using:
 
 This keeps the architecture simple and cheap while still aligning with the project’s demo needs.
 
-For a complete setup and runbook, see [docs/08-end-to-end-demo-guide.md](docs/08-end-to-end-demo-guide.md).
+For a complete setup and runbook, see [08-end-to-end-demo-guide.md](08-end-to-end-demo-guide.md).
+
+For detailed Gmail OAuth credential creation and token generation, see the `Create Gmail OAuth credentials and token` section in [08-end-to-end-demo-guide.md](08-end-to-end-demo-guide.md).
+
+For the timed <=5 minute presentation script with exact on-screen actions and voice prompts, see the `Timed End-to-End Demo Flow (<=5 minutes)` section in [08-end-to-end-demo-guide.md](08-end-to-end-demo-guide.md).
 
 ## Why this stack
 
@@ -54,7 +58,53 @@ chmod +x scripts/deploy-demo.sh
 ./scripts/deploy-demo.sh
 ```
 
+Post-deploy smoke validation:
+
+```bash
+chmod +x scripts/smoke-aws-demo.sh
+./scripts/smoke-aws-demo.sh
+```
+
+The smoke script reads Terraform outputs and checks:
+
+- backend `/health`
+- backend `/health/gmail`
+- backend `POST /demo/runbook`
+- backend `/storefront`
+- frontend URL reachability
+
 The current deployment model is Terraform-owned end to end: the script only calls `terraform init` and `terraform apply`, and Terraform triggers the artifact build/publish steps itself.
+
+## GitHub CI Deployment
+
+This repository includes a GitHub Actions workflow at [../.github/workflows/deploy-aws.yml](../.github/workflows/deploy-aws.yml) that deploys to AWS with Terraform.
+
+The workflow does not use local `terraform.tfvars`. It creates a CI-only `terraform.auto.tfvars` from GitHub Secrets and applies the stack.
+
+Required GitHub Secrets:
+
+- `AWS_ACCESS_KEY_ID` (credential used by GitHub Actions to call AWS)
+- `AWS_SECRET_ACCESS_KEY` (credential used by GitHub Actions to call AWS)
+- `AWS_REGION`
+- `FRONTEND_BUCKET_NAME`
+- `ECR_REPOSITORY_NAME`
+- `APP_RUNNER_SERVICE_NAME`
+- `RUNTIME_SECRET_NAME`
+- `RUNTIME_AWS_ACCESS_KEY_ID` (credential injected into app runtime secret)
+- `RUNTIME_AWS_SECRET_ACCESS_KEY` (credential injected into app runtime secret)
+- `RUNTIME_AWS_SESSION_TOKEN` (optional, can be empty)
+- `CLAIMPILOT_MODEL_ID`
+- `GMAIL_CREDENTIALS_JSON`
+- `GMAIL_TOKEN_JSON`
+- `GMAIL_TARGET_ADDRESS`
+- `GMAIL_QUERY`
+
+Trigger modes:
+
+- Manual: `workflow_dispatch`
+- Automatic on push to `main`
+
+After each run, deployment URLs are added to the workflow summary.
 
 ## Terraform deployment
 
@@ -96,7 +146,7 @@ Terraform now stores all runtime values in a single Secrets Manager JSON secret 
 
 The Strands SDK is installed inside the backend container during the Docker build step via `pip install -e .` from `pyproject.toml` dependencies, and that container image is pushed to ECR and run by App Runner.
 
-For the full infra map and component purposes, see [docs/09-aws-infra-architecture.md](docs/09-aws-infra-architecture.md).
+For the full infra map and component purposes, see [09-aws-infra-architecture.md](09-aws-infra-architecture.md).
 
 ## Cost optimization notes
 

@@ -7,6 +7,7 @@ from .agent_runtime import DecisionEngine, StrandsDecisionEngine, create_default
 from .models import ActionType, AuditRecord, ExceptionType, Order
 from .pipeline import Event, EventBus
 from .store import AuditStore, OrderStore
+from .telemetry import log_event
 
 
 class AutoResolutionWorker(Protocol):
@@ -59,6 +60,7 @@ def handle_order_detected(event: Event, order_store: OrderStore, audit_store: Au
         raise TypeError("OrderDetected payload must include an Order instance")
 
     order_store.upsert(order)
+    correlation_id = str(event.payload.get("correlation_id", f"order:{order.order_id}"))
     audit_store.add(
         AuditRecord(
             order_id=order.order_id,
@@ -66,8 +68,10 @@ def handle_order_detected(event: Event, order_store: OrderStore, audit_store: Au
             action="order_detected",
             status="success",
             details="Order saved to store.",
+            metadata={"correlation_id": correlation_id},
         )
     )
+    log_event("order_detected", order_id=order.order_id, user_id=order.user_id, correlation_id=correlation_id)
 
 
 def handle_status_changed(
@@ -83,13 +87,20 @@ def handle_status_changed(
 
     order = order_store.get(order_id)
     exception_type = ExceptionType(exception_type_raw)
+    correlation_id = str(event.payload.get("correlation_id", f"order:{order_id}"))
+    source_message_id = str(event.payload.get("source_message_id", ""))
     decision = decision_engine.decide(
         order=order,
         exception_type=exception_type,
         evidence_quality=evidence_quality,
         now=datetime.now(timezone.utc),
     )
-    decision_source = decision.metadata.get("decision_source", "unknown")
+    metadata = {str(k): str(v) for k, v in decision.metadata.items()}
+    metadata["correlation_id"] = correlation_id
+    if source_message_id:
+        metadata["source_message_id"] = source_message_id
+
+    decision_source = metadata.get("decision_source", "unknown")
 
     topic = "AutoResolve" if decision.action is ActionType.AUTO_RESOLVE else "NeedsDecision"
     bus.publish(
@@ -100,7 +111,7 @@ def handle_status_changed(
                 "user_id": order.user_id,
                 "exception_type": decision.exception_type.value,
                 "reason": decision.reason,
-                "metadata": decision.metadata,
+                "metadata": metadata,
             },
         )
     )
@@ -112,8 +123,16 @@ def handle_status_changed(
             action="exception_classified",
             status="success",
             details=f"{decision.exception_type.value} -> {decision.action.value} [{decision_source}] {decision.reason}",
-            metadata=decision.metadata,
+            metadata=metadata,
         )
+    )
+    log_event(
+        "exception_classified",
+        order_id=order.order_id,
+        user_id=order.user_id,
+        exception_type=decision.exception_type.value,
+        action=decision.action.value,
+        correlation_id=correlation_id,
     )
 
 
@@ -127,6 +146,8 @@ def handle_auto_resolve(
     if resolution_worker is not None:
         status, details = resolution_worker.resolve(event.payload)
 
+    metadata = {str(k): str(v) for k, v in dict(event.payload.get("metadata", {})).items()}
+
     audit_store.add(
         AuditRecord(
             order_id=str(event.payload["order_id"]),
@@ -134,8 +155,14 @@ def handle_auto_resolve(
             action="auto_resolve",
             status=status,
             details=details,
-            metadata={str(k): str(v) for k, v in dict(event.payload.get("metadata", {})).items()},
+            metadata=metadata,
         )
+    )
+    log_event(
+        "auto_resolve",
+        order_id=str(event.payload["order_id"]),
+        status=status,
+        correlation_id=metadata.get("correlation_id", ""),
     )
 
 
@@ -149,6 +176,8 @@ def handle_needs_decision(
     if notification_worker is not None:
         status, details = notification_worker.notify(event.payload)
 
+    metadata = {str(k): str(v) for k, v in dict(event.payload.get("metadata", {})).items()}
+
     audit_store.add(
         AuditRecord(
             order_id=str(event.payload["order_id"]),
@@ -156,8 +185,14 @@ def handle_needs_decision(
             action="needs_decision",
             status=status,
             details=details,
-            metadata={str(k): str(v) for k, v in dict(event.payload.get("metadata", {})).items()},
+            metadata=metadata,
         )
+    )
+    log_event(
+        "needs_decision",
+        order_id=str(event.payload["order_id"]),
+        status=status,
+        correlation_id=metadata.get("correlation_id", ""),
     )
 
 
@@ -178,6 +213,8 @@ def handle_decision_captured(
     if decision_capture_worker is not None:
         status, details = decision_capture_worker.capture(event.payload)
 
+    metadata = {str(k): str(v) for k, v in dict(event.payload.get("metadata", {})).items()}
+
     audit_store.add(
         AuditRecord(
             order_id=str(event.payload["order_id"]),
@@ -185,6 +222,12 @@ def handle_decision_captured(
             action="decision_captured",
             status=status,
             details=details,
-            metadata={str(k): str(v) for k, v in dict(event.payload.get("metadata", {})).items()},
+            metadata=metadata,
         )
+    )
+    log_event(
+        "decision_captured",
+        order_id=str(event.payload["order_id"]),
+        status=status,
+        correlation_id=metadata.get("correlation_id", ""),
     )

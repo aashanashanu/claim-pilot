@@ -44,3 +44,10 @@ htmlcov/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Terraform local state and secrets
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+.terraform/

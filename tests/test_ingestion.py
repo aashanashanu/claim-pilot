@@ -51,3 +51,22 @@ def test_ingest_mailbox_messages_dedupes_by_message_id():
     assert emitted_second == []
     order_detected_events = [e for e in bus.published if e.topic == "OrderDetected"]
     assert len(order_detected_events) == 1
+
+
+def test_ingest_mailbox_messages_adds_correlation_id_to_emitted_events():
+    message = MailMessage(
+        message_id="corr-1",
+        user_id="user-corr",
+        subject="Order #ORD-C1",
+        body="Item: Cable\nPrice: $10.00",
+        received_at=datetime(2026, 8, 20, 12, 0, 0, tzinfo=timezone.utc),
+    )
+
+    bus = EventBus()
+    dedupe = ProcessedEventStore()
+
+    emitted = ingest_mailbox_messages([message], bus, dedupe)
+
+    assert emitted == ["ORD-C1"]
+    order_detected_event = [e for e in bus.published if e.topic == "OrderDetected"][0]
+    assert order_detected_event.payload["correlation_id"] == "mail:user-corr:corr-1"

@@ -1,12 +1,29 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from .demo_service import DemoService
 from .integrations import GmailInboxAdapter
 
-app = FastAPI(title="ClaimPilot Demo API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _initialize_service()
+    if app.state.service is not None:
+        app.state.service.start_background_workers()
+
+    try:
+        yield
+    finally:
+        service = app.state.service
+        if service is not None:
+            service.stop_background_workers()
+
+
+app = FastAPI(title="ClaimPilot Demo API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -26,20 +43,6 @@ def _initialize_service() -> None:
     except Exception as exc:
         app.state.service = None
         app.state.startup_error = f"Strands not configured: {exc}"
-
-
-@app.on_event("startup")
-def startup_event() -> None:
-    _initialize_service()
-    if app.state.service is not None:
-        app.state.service.start_background_workers()
-
-
-@app.on_event("shutdown")
-def shutdown_event() -> None:
-    service = app.state.service
-    if service is not None:
-        service.stop_background_workers()
 
 
 def _require_service() -> DemoService:
@@ -84,6 +87,12 @@ def get_demo() -> dict[str, object]:
 def trigger_scenario(scenario: str) -> dict[str, object]:
     service = _require_service()
     return service.trigger_scenario(scenario)
+
+
+@app.post("/demo/runbook")
+def run_demo_runbook() -> dict[str, object]:
+    service = _require_service()
+    return service.run_demo_runbook()
 
 
 @app.post("/integrations/email/gmail/ingest")

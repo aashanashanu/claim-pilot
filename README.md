@@ -32,6 +32,7 @@ This repository contains the MVP backend, a React demo dashboard, and the AWS de
 - AWS demo deployment guide: [docs/07-aws-demo-deployment.md](docs/07-aws-demo-deployment.md)
 - End-to-end demo guide: [docs/08-end-to-end-demo-guide.md](docs/08-end-to-end-demo-guide.md)
 - AWS infrastructure architecture: [docs/09-aws-infra-architecture.md](docs/09-aws-infra-architecture.md)
+- Rules gap remediation plan: [docs/10-rules-gap-remediation-plan.md](docs/10-rules-gap-remediation-plan.md)
 
 ## Quick Start
 
@@ -104,16 +105,20 @@ export CLAIMPILOT_GMAIL_QUERY='newer_than:7d (subject:(order OR shipped OR deliv
 Prerequisites:
 
 ```bash
-export AWS_ACCOUNT_ID=123456789012
-export AWS_REGION=us-west-2
+export AWS_REGION=us-east-1
 ```
+
+Install Terraform and make sure the AWS CLI is authenticated for the target account.
 
 Then run:
 
 ```bash
 chmod +x scripts/deploy-demo.sh
 ./scripts/deploy-demo.sh
+./scripts/smoke-aws-demo.sh
 ```
+
+CI deployment is also available via GitHub Actions using repo secrets. See [docs/07-aws-demo-deployment.md](docs/07-aws-demo-deployment.md) for required secret names and workflow details.
 
 Before deploying, copy the Terraform example vars file and fill in the runtime secret JSON that Terraform will store in Secrets Manager:
 
@@ -131,6 +136,14 @@ terraform -chdir=infra/aws apply
 ```
 
 Terraform owns the full deployment: it creates the ECR repo, Secrets Manager runtime JSON, App Runner backend, CloudFront frontend, and the artifact publish steps that build and sync the frontend/backend.
+
+After apply, run the smoke script to validate backend health, Gmail readiness, one-click runbook execution, storefront reachability, and frontend URL availability using Terraform outputs.
+
+To trigger the deterministic full demo sequence (phase 4 surface), call:
+
+```bash
+curl -X POST https://<your-app-runner-url>/demo/runbook
+```
 
 ## AWS Deployment Architecture
 
@@ -162,3 +175,5 @@ The App Runner container loads the AWS credentials from AWS Secrets Manager, and
 - Local and deployed demo runs require Strands runtime dependencies and AWS credentials for Bedrock access.
 - Real Strands + Bedrock integration is mandatory in this build.
 - This repo is intentionally optimized for a hackathon demo and a low-cost cloud deployment path.
+- Structured, redacted JSON telemetry is emitted for ingestion, tracking, decision routing, and decision capture.
+- Use `./scripts/validate-local.sh` for one-command backend tests + focused integration checks + frontend build.

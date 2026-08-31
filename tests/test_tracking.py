@@ -140,3 +140,60 @@ def test_poll_tracking_records_retryable_errors_in_dead_letter_store():
     assert entries[0]["order_id"] == "ord-track-3"
     assert entries[0]["status"] == "retry"
     assert "temporary carrier timeout" in entries[0]["reason"]
+    assert "retry_attempts=3" in entries[0]["reason"]
+
+
+def test_poll_tracking_retries_and_succeeds_before_dead_letter():
+    now = datetime(2026, 8, 20, 12, 0, 0, tzinfo=timezone.utc)
+    order = Order(
+        order_id="ord-track-4",
+        user_id="user-4",
+        item_name="Stand",
+        purchase_price=40.0,
+        current_price=40.0,
+        purchased_at=now - timedelta(days=7),
+        return_window_days=30,
+        expected_delivery_at=now - timedelta(days=2),
+        carrier="USPS",
+        tracking_number="TRK-4",
+    )
+
+    update = TrackingUpdate(
+        order_id=order.order_id,
+        status=TrackingStatus.IN_TRANSIT,
+        raw_status="IN_TRANSIT",
+        event_time=now,
+    )
+
+    class FlakyTracker:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def fetch_status(self, order_id: str, tracking_number: str) -> TrackingUpdate | None:
+            self.calls += 1
+            if self.calls < 3:
+                raise RuntimeError("temporary carrier timeout")
+            return update
+
+    order_store = OrderStore()
+    order_store.upsert(order)
+    state_store = TrackingStateStore()
+    dedupe = ProcessedEventStore()
+    bus = EventBus()
+    dead_letter_store = DeadLetterStore()
+    tracker = FlakyTracker()
+
+    emitted = poll_tracking_updates(
+        order_store,
+        tracker,
+        state_store,
+        dedupe,
+        bus,
+        now=now,
+        dead_letter_store=dead_letter_store,
+        max_retry_attempts=3,
+    )
+
+    assert emitted == ["ord-track-4"]
+    assert tracker.calls == 3
+    assert dead_letter_store.all() == []

@@ -2,6 +2,24 @@
 
 This checklist maps the Agents for Humans hackathon requirements to concrete project artifacts.
 
+## Current Status (2026-08-31)
+
+Legend: Complete = present in repo, Open = still needs a submission artifact or verification.
+
+| Rule item | Status | Evidence in repo | Fix needed |
+| --- | --- | --- | --- |
+| Uses Strands Agents SDK in real workflow | Complete | `src/claimpilot/agent_runtime.py`, `tests/test_strands_integration.py` | None |
+| Public repo with all code/assets/instructions | Open | README and docs are complete, but public URL is not set in repo docs | Add final public repo link in Devpost submission |
+| MIT or Apache license in root | Complete | `LICENSE` | Verify Devpost points to this repo |
+| README included | Complete | `README.md` | None |
+| Architecture diagram included | Complete | `docs/01-architecture-diagram.md` | None |
+| End-to-end working demo instructions | Complete | `docs/08-end-to-end-demo-guide.md`, `scripts/smoke-aws-demo.sh` | None |
+| Public video (<=5 min) with demo and pitch | Open | Demo playbook exists in `docs/06-demo-and-judging-playbook.md` | Record and upload final video, then add link to submission |
+| Submission text description | Open | Draft narrative in `ClaimPilot-Hackathon-Build-Doc.md` | Copy polished version into Devpost description |
+| AWS Builder ID in submission | Open | Not stored in repo by design | Add Builder ID in Devpost form |
+| Project available for judging/testing period | Open | Deploy + smoke path exists (`scripts/deploy-demo.sh`, `scripts/smoke-aws-demo.sh`) | Keep live URL available through judging period |
+| Third-party usage authorization | Open | Integrations documented (`src/claimpilot/integrations.py`) | Add final disclosure note in submission text |
+
 ## Required Items
 
 - Project uses Strands Agents SDK in a real, non-trivial workflow.
@@ -35,3 +53,13 @@ This checklist maps the Agents for Humans hackathon requirements to concrete pro
 - End-to-end demo guide works from clean clone and covers the complete live flow.
 - Diagram and testing instructions are discoverable in README.
 - No secrets are committed.
+
+## Last-mile Validation Commands
+
+Run from repository root:
+
+```bash
+python -m pytest
+cd frontend && npm run build && cd ..
+./scripts/smoke-aws-demo.sh
+```

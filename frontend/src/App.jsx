@@ -105,6 +105,23 @@ function App() {
     }
   }
 
+  const runDemoRunbook = async () => {
+    setLoading(true)
+    try {
+      const response = await fetch(`${API_BASE}/demo/runbook`, {
+        method: 'POST',
+      })
+      if (!response.ok) {
+        throw new Error(`Demo runbook failed: ${response.status}`)
+      }
+      await fetchAll()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const seedStorefront = async () => {
     setStorefrontLoading(true)
     try {
@@ -241,6 +258,14 @@ function App() {
                 {label}
               </button>
             ))}
+            <button
+              type="button"
+              className="action-button"
+              disabled={loading}
+              onClick={runDemoRunbook}
+            >
+              Run full demo flow
+            </button>
           </div>
 
           <div className="summary-grid">

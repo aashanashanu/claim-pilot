@@ -6,6 +6,7 @@ from typing import Protocol
 from .models import ExceptionType, TrackingStatus, TrackingUpdate
 from .pipeline import Event, EventBus
 from .store import DeadLetterStore, OrderStore, ProcessedEventStore, TrackingStateStore
+from .telemetry import log_event
 
 
 class CarrierTrackingAdapter(Protocol):
@@ -45,19 +46,48 @@ def poll_tracking_updates(
     bus: EventBus,
     now: datetime | None = None,
     dead_letter_store: DeadLetterStore | None = None,
+    max_retry_attempts: int = 3,
 ) -> list[str]:
     now = now or datetime.now(timezone.utc)
     emitted_order_ids: list[str] = []
+    retry_attempts = max(1, max_retry_attempts)
 
     for order in order_store.all():
         if not order.tracking_number:
             continue
 
-        try:
-            update = tracker.fetch_status(order.order_id, order.tracking_number)
-        except Exception as exc:  # retryable carrier issues should never break the event loop
+        update: TrackingUpdate | None = None
+        last_error: Exception | None = None
+        for attempt in range(1, retry_attempts + 1):
+            try:
+                update = tracker.fetch_status(order.order_id, order.tracking_number)
+                if attempt > 1:
+                    log_event(
+                        "tracking_retry_succeeded",
+                        order_id=order.order_id,
+                        tracking_number=order.tracking_number,
+                        attempts=attempt,
+                    )
+                last_error = None
+                break
+            except Exception as exc:  # retryable carrier issues should never break the event loop
+                last_error = exc
+                log_event(
+                    "tracking_retry_attempt_failed",
+                    order_id=order.order_id,
+                    tracking_number=order.tracking_number,
+                    attempt=attempt,
+                    max_retry_attempts=retry_attempts,
+                    error=str(exc),
+                )
+
+        if last_error is not None:
             if dead_letter_store is not None:
-                dead_letter_store.add(order.order_id, str(exc), status="retry")
+                dead_letter_store.add(
+                    order.order_id,
+                    f"{last_error} (retry_attempts={retry_attempts})",
+                    status="retry",
+                )
             continue
 
         if update is None:
@@ -88,8 +118,15 @@ def poll_tracking_updates(
                     "exception_type": exception_type.value,
                     "carrier_status": update.status.value,
                     "raw_status": update.raw_status,
+                    "correlation_id": f"track:{order.order_id}:{update.status.value}",
                 },
             )
+        )
+        log_event(
+            "tracking_status_changed_emitted",
+            order_id=order.order_id,
+            carrier_status=update.status.value,
+            exception_type=exception_type.value,
         )
         emitted_order_ids.append(order.order_id)
 

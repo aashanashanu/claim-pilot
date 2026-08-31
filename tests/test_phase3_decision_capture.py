@@ -40,6 +40,8 @@ def test_capture_decision_approves_pending_order_and_clears_dashboard_state():
     snapshot = service.snapshot()
     assert snapshot["pending_decisions"] == 0
     assert any(record["action"] == "decision_captured" for record in snapshot["audit_records"])
+    decision_record = [record for record in snapshot["audit_records"] if record["action"] == "decision_captured"][-1]
+    assert decision_record["metadata"].get("correlation_id")
 
 
 def test_capture_decision_rejects_pending_order():

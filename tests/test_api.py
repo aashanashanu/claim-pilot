@@ -11,6 +11,17 @@ class _OkService:
     def trigger_scenario(self, scenario: str) -> dict[str, object]:
         return {"scenario": scenario, "action": "needs_decision"}
 
+    def run_demo_runbook(self) -> dict[str, object]:
+        return {
+            "status": "ok",
+            "runbook": "phase4_demo_surface",
+            "beats": {
+                "price_drop": {"action": "auto_resolve"},
+                "damaged_item": {"action": "needs_decision"},
+                "return_window": {"action": "needs_decision"},
+            },
+        }
+
     def ingest_gmail_messages(self, user_id: str = "user-demo", max_results: int = 3) -> dict[str, object]:
         return {
             "source": "gmail",
@@ -123,6 +134,16 @@ def test_health_and_demo_endpoints_work_when_service_initializes(monkeypatch: py
 
     scenario = api.trigger_scenario("damaged_item")
     assert scenario["scenario"] == "damaged_item"
+
+
+def test_demo_runbook_endpoint_works_when_service_is_ready(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(api, "DemoService", _OkService)
+
+    api._initialize_service()
+
+    payload = api.run_demo_runbook()
+    assert payload["status"] == "ok"
+    assert payload["runbook"] == "phase4_demo_surface"
 
 
 def test_integration_endpoints_work_when_service_is_ready(monkeypatch: pytest.MonkeyPatch):

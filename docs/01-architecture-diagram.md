@@ -110,3 +110,5 @@ sequenceDiagram
 - The storefront creates real Gmail order/status mail for the demo inbox.
 - The dashboard exposes pending decisions and approve/reject controls.
 - The API exposes health, Gmail readiness, inbox ingest, tracking poll, storefront actions, and decision capture.
+- Structured JSON telemetry with redaction logs ingestion, tracking, decisioning, and capture events.
+- Correlation IDs (`mail:*`, `track:*`, `decision:*`) are carried in metadata to tie audit records to source events.

@@ -7,6 +7,7 @@ from typing import Iterable
 from .models import MailMessage, Order
 from .pipeline import Event, EventBus
 from .store import ProcessedEventStore
+from .telemetry import log_event
 
 
 _ORDER_ID_RE = re.compile(r"order\s*(?:id|#)\s*[:\-]?\s*([A-Za-z0-9\-]+)", re.IGNORECASE)
@@ -100,14 +101,37 @@ def ingest_mailbox_messages(
 ) -> list[str]:
     emitted: list[str] = []
     for message in messages:
-        event_key = f"mail:{message.user_id}:{message.message_id}"
+        correlation_id = f"mail:{message.user_id}:{message.message_id}"
+        event_key = correlation_id
         if not processed_events.mark_if_new(event_key):
+            log_event(
+                "ingestion_duplicate_skipped",
+                correlation_id=correlation_id,
+                message_id=message.message_id,
+                user_id=message.user_id,
+            )
             continue
 
-        parsed = parse_claimpilot_event(message)
+        try:
+            parsed = parse_claimpilot_event(message)
+        except Exception as exc:
+            log_event(
+                "ingestion_parse_failed",
+                correlation_id=correlation_id,
+                message_id=message.message_id,
+                user_id=message.user_id,
+                error=str(exc),
+            )
+            continue
+
         kind = str(parsed.get("kind", "order"))
         order = parsed["order"]
         if not isinstance(order, Order):
+            log_event(
+                "ingestion_invalid_order_skipped",
+                correlation_id=correlation_id,
+                message_id=message.message_id,
+            )
             continue
 
         if kind == "status":
@@ -120,15 +144,31 @@ def ingest_mailbox_messages(
                         "evidence_quality": str(parsed.get("evidence_quality", "strong")),
                         "current_price": parsed.get("current_price", order.current_price),
                         "source_message_id": message.message_id,
+                        "correlation_id": correlation_id,
                     },
                 )
+            )
+            log_event(
+                "ingestion_status_published",
+                correlation_id=correlation_id,
+                order_id=order.order_id,
+                exception_type=str(parsed.get("exception_type", "price_drop")),
             )
         else:
             bus.publish(
                 Event(
                     topic="OrderDetected",
-                    payload={"order": order, "source_message_id": message.message_id},
+                    payload={
+                        "order": order,
+                        "source_message_id": message.message_id,
+                        "correlation_id": correlation_id,
+                    },
                 )
+            )
+            log_event(
+                "ingestion_order_published",
+                correlation_id=correlation_id,
+                order_id=order.order_id,
             )
         emitted.append(order.order_id)
     return emitted

@@ -60,6 +60,7 @@ Exit criteria:
 - Build minimal dashboard for storefront orders, pending decisions, and audit timeline.
 - Add deterministic scenario triggers.
 - Provide storefront controls for buy, price-drop, return, and claim demo actions.
+- Add one-click runbook trigger for the full demo sequence.
 
 Exit criteria:
 - End-to-end demo flow runs on demand with no manual patching.

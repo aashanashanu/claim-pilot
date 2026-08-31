@@ -14,6 +14,7 @@ from .integrations import CarrierStatusAdapter, GmailInboxAdapter, GmailMessageA
 from .models import StorefrontActivity, StorefrontOrder, StorefrontProduct
 from .pipeline import Event
 from .store import DeadLetterStore, ProcessedEventStore, StorefrontStore, TrackingStateStore
+from .telemetry import log_event
 from .tracking import poll_tracking_updates
 
 
@@ -21,6 +22,7 @@ class DemoService:
     """Application service used by both desktop and web clients."""
 
     _DECISION_SOURCE_RE = re.compile(r"\[(?P<source>[^\]]+)\]")
+    _GMAIL_POLL_RETRY_ATTEMPTS = 3
 
     def __init__(
         self,
@@ -56,6 +58,22 @@ class DemoService:
         result = self.dashboard.trigger_scenario(scenario)
         return result
 
+    def run_demo_runbook(self) -> dict[str, Any]:
+        storefront_seed = self.seed_storefront_demo()
+        beats = {
+            "price_drop": self.trigger_scenario("price_drop"),
+            "damaged_item": self.trigger_scenario("damaged_item"),
+            "return_window": self.trigger_scenario("return_window"),
+        }
+        return {
+            "status": "ok",
+            "runbook": "phase4_demo_surface",
+            "storefront_seed": storefront_seed,
+            "beats": beats,
+            "snapshot": self.snapshot(),
+            "storefront": self.storefront_snapshot(),
+        }
+
     def ingest_gmail_messages(self, user_id: str = "user-demo", max_results: int = 3) -> dict[str, Any]:
         messages = self.gmail_adapter.fetch_messages(user_id=user_id, max_results=max_results)
         return self._ingest_messages(messages, source="gmail")
@@ -82,12 +100,36 @@ class DemoService:
 
     def _gmail_poll_loop(self) -> None:
         while not self._gmail_poll_stop_event.is_set():
-            try:
-                self.poll_gmail_inbox(max_results=self.gmail_poll_max_results)
-            except Exception as exc:
-                self.dead_letter_store.add("gmail-inbox", str(exc), status="retry")
+            self._poll_gmail_with_retries(max_results=self.gmail_poll_max_results)
 
             self._gmail_poll_stop_event.wait(self.gmail_poll_interval_seconds)
+
+    def _poll_gmail_with_retries(self, max_results: int) -> None:
+        last_error = "unknown"
+        for attempt in range(1, self._GMAIL_POLL_RETRY_ATTEMPTS + 1):
+            try:
+                result = self.poll_gmail_inbox(max_results=max_results)
+                log_event(
+                    "gmail_poll_completed",
+                    attempt=attempt,
+                    ingested=result.get("ingested", 0),
+                    requested=result.get("requested", 0),
+                )
+                return
+            except Exception as exc:
+                last_error = str(exc)
+                log_event(
+                    "gmail_poll_attempt_failed",
+                    attempt=attempt,
+                    max_retry_attempts=self._GMAIL_POLL_RETRY_ATTEMPTS,
+                    error=str(exc),
+                )
+
+        self.dead_letter_store.add(
+            "gmail-inbox",
+            f"poll retries exhausted: {last_error}",
+            status="retry",
+        )
 
     def _ingest_messages(self, messages: list[Any], *, source: str) -> dict[str, Any]:
         with self._gmail_poll_lock:
@@ -96,6 +138,14 @@ class DemoService:
                 bus=self.dashboard.bus,
                 processed_events=self.email_processed_store,
             )
+
+        log_event(
+            "ingestion_batch_completed",
+            source=source,
+            requested=len(messages),
+            ingested=len(emitted_order_ids),
+            emitted_order_ids=emitted_order_ids,
+        )
 
         return {
             "source": source,
@@ -362,6 +412,12 @@ class DemoService:
             bus=self.dashboard.bus,
             dead_letter_store=self.dead_letter_store,
         )
+        log_event(
+            "tracking_poll_completed",
+            status_changed_count=len(emitted_order_ids),
+            order_ids=emitted_order_ids,
+            dead_letter_count=len(self.dead_letter_store.all()),
+        )
         return {
             "source": "carrier",
             "status_changed_count": len(emitted_order_ids),
@@ -383,9 +439,20 @@ class DemoService:
             "user_id": pending_record["user_id"],
             "decision": normalized_decision,
             "reason": reason or pending_record["details"],
-            "metadata": pending_record.get("metadata", {}),
+            "metadata": {
+                **pending_record.get("metadata", {}),
+                "correlation_id": str(
+                    pending_record.get("metadata", {}).get("correlation_id", f"decision:{order_id}")
+                ),
+            },
         }
         self.dashboard.bus.publish(Event(topic="DecisionCaptured", payload=payload))
+        log_event(
+            "decision_capture_requested",
+            order_id=order_id,
+            decision=normalized_decision,
+            correlation_id=payload["metadata"].get("correlation_id", ""),
+        )
         return {
             "status": normalized_decision,
             "order_id": order_id,

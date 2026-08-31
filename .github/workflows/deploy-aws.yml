@@ -1,0 +1,128 @@
+name: Deploy ClaimPilot to AWS
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: claimpilot-aws-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      TF_IN_AUTOMATION: "true"
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      FRONTEND_BUCKET_NAME: ${{ secrets.FRONTEND_BUCKET_NAME }}
+      ECR_REPOSITORY_NAME: ${{ secrets.ECR_REPOSITORY_NAME }}
+      APP_RUNNER_SERVICE_NAME: ${{ secrets.APP_RUNNER_SERVICE_NAME }}
+      RUNTIME_SECRET_NAME: ${{ secrets.RUNTIME_SECRET_NAME }}
+      RUNTIME_AWS_ACCESS_KEY_ID: ${{ secrets.RUNTIME_AWS_ACCESS_KEY_ID }}
+      RUNTIME_AWS_SECRET_ACCESS_KEY: ${{ secrets.RUNTIME_AWS_SECRET_ACCESS_KEY }}
+      RUNTIME_AWS_SESSION_TOKEN: ${{ secrets.RUNTIME_AWS_SESSION_TOKEN }}
+      CLAIMPILOT_MODEL_ID: ${{ secrets.CLAIMPILOT_MODEL_ID }}
+      GMAIL_CREDENTIALS_JSON: ${{ secrets.GMAIL_CREDENTIALS_JSON }}
+      GMAIL_TOKEN_JSON: ${{ secrets.GMAIL_TOKEN_JSON }}
+      GMAIL_TARGET_ADDRESS: ${{ secrets.GMAIL_TARGET_ADDRESS }}
+      GMAIL_QUERY: ${{ secrets.GMAIL_QUERY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(
+            AWS_REGION
+            FRONTEND_BUCKET_NAME
+            ECR_REPOSITORY_NAME
+            APP_RUNNER_SERVICE_NAME
+            RUNTIME_SECRET_NAME
+            RUNTIME_AWS_ACCESS_KEY_ID
+            RUNTIME_AWS_SECRET_ACCESS_KEY
+            CLAIMPILOT_MODEL_ID
+            GMAIL_CREDENTIALS_JSON
+            GMAIL_TOKEN_JSON
+            GMAIL_TARGET_ADDRESS
+            GMAIL_QUERY
+          )
+
+          for key in "${required[@]}"; do
+            if [[ -z "${!key:-}" ]]; then
+              echo "Missing required GitHub secret: ${key}"
+              exit 1
+            fi
+          done
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.0
+
+      - name: Create CI tfvars file
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > infra/aws/terraform.auto.tfvars <<EOF
+          aws_region = "${AWS_REGION}"
+          frontend_bucket_name = "${FRONTEND_BUCKET_NAME}"
+          ecr_repository_name = "${ECR_REPOSITORY_NAME}"
+          app_runner_service_name = "${APP_RUNNER_SERVICE_NAME}"
+          runtime_secret_name = "${RUNTIME_SECRET_NAME}"
+
+          runtime_secrets = {
+            aws_access_key_id     = "${RUNTIME_AWS_ACCESS_KEY_ID}"
+            aws_secret_access_key = "${RUNTIME_AWS_SECRET_ACCESS_KEY}"
+            aws_session_token     = "${RUNTIME_AWS_SESSION_TOKEN}"
+            claimpilot_model_id   = "${CLAIMPILOT_MODEL_ID}"
+
+            gmail_credentials_json = <<GMAIL_CREDS
+          ${GMAIL_CREDENTIALS_JSON}
+          GMAIL_CREDS
+
+            gmail_token_json = <<GMAIL_TOKEN
+          ${GMAIL_TOKEN_JSON}
+          GMAIL_TOKEN
+
+            gmail_target_address = "${GMAIL_TARGET_ADDRESS}"
+            gmail_query          = "${GMAIL_QUERY}"
+          }
+          EOF
+
+      - name: Terraform Init
+        run: terraform -chdir=infra/aws init
+
+      - name: Terraform Apply
+        run: terraform -chdir=infra/aws apply -auto-approve
+
+      - name: Capture deployment outputs
+        id: outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          frontend_url="$(terraform -chdir=infra/aws output -raw frontend_url)"
+          backend_url="$(terraform -chdir=infra/aws output -raw backend_url)"
+          echo "frontend_url=${frontend_url}" >> "$GITHUB_OUTPUT"
+          echo "backend_url=${backend_url}" >> "$GITHUB_OUTPUT"
+
+      - name: Deployment summary
+        run: |
+          echo "## ClaimPilot AWS Deployment" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Frontend URL: ${{ steps.outputs.outputs.frontend_url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Backend URL: ${{ steps.outputs.outputs.backend_url }}" >> "$GITHUB_STEP_SUMMARY"
