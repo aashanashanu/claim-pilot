@@ -166,8 +166,15 @@ def handle_decision_captured(
     audit_store: AuditStore,
     decision_capture_worker: DecisionCaptureWorker | None = None,
 ) -> None:
-    status = "approved"
-    details = "Decision captured."
+    decision = str(event.payload.get("decision", "pending")).strip().lower()
+    if decision in {"approve", "approve_photo", "approved"}:
+        status = "approved"
+    elif decision in {"reject", "rejected", "deny", "denied"}:
+        status = "rejected"
+    else:
+        status = "failed"
+
+    details = str(event.payload.get("reason", "Decision captured."))
     if decision_capture_worker is not None:
         status, details = decision_capture_worker.capture(event.payload)
 
@@ -178,5 +185,6 @@ def handle_decision_captured(
             action="decision_captured",
             status=status,
             details=details,
+            metadata={str(k): str(v) for k, v in dict(event.payload.get("metadata", {})).items()},
         )
     )

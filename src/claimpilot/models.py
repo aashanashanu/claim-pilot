@@ -79,3 +79,37 @@ class AuditRecord:
     details: str
     metadata: dict[str, str] = field(default_factory=dict)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+@dataclass(slots=True)
+class StorefrontProduct:
+    product_id: str
+    name: str
+    description: str
+    price: float
+    merchant: str = "ClaimPilot Storefront"
+    return_window_days: int = 30
+
+
+@dataclass(slots=True)
+class StorefrontOrder:
+    order_id: str
+    product_id: str
+    item_name: str
+    merchant: str
+    purchase_price: float
+    current_price: float
+    status: str
+    recipient_email: str
+    email_subject: str
+    email_kind: str
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+@dataclass(slots=True)
+class StorefrontActivity:
+    activity_type: str
+    order_id: str
+    product_id: str
+    details: str
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))

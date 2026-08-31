@@ -34,6 +34,42 @@ class _OkService:
             "message": "Gmail integration is configured and token is valid.",
         }
 
+    def storefront_snapshot(self) -> dict[str, object]:
+        return {
+            "recipient_email": "demo@example.com",
+            "catalog": [],
+            "orders": [],
+            "activities": [],
+            "pending_decision_items": [
+                {
+                    "order_id": "ORD-1",
+                    "user_id": "user-demo",
+                    "status": "pending_user",
+                    "details": "Need photo evidence from user.",
+                    "metadata": {},
+                    "created_at": "2026-08-25T00:00:00+00:00",
+                }
+            ],
+        }
+
+    def seed_storefront_demo(self) -> dict[str, object]:
+        return {"status": "seeded", "orders_created": ["SF-0001"], "storefront": self.storefront_snapshot()}
+
+    def purchase_product(self, product_id: str, recipient_email: str | None = None) -> dict[str, object]:
+        return {"order_id": f"SF-{product_id}", "product_id": product_id, "item_name": product_id, "status": "order"}
+
+    def price_drop(self, order_id: str, new_price: float) -> dict[str, object]:
+        return {"order_id": order_id, "product_id": "monitor", "item_name": "monitor", "status": "price_drop"}
+
+    def start_return(self, order_id: str) -> dict[str, object]:
+        return {"order_id": order_id, "product_id": "backpack", "item_name": "backpack", "status": "return"}
+
+    def file_claim(self, order_id: str, claim_type: str = "damaged_item") -> dict[str, object]:
+        return {"order_id": order_id, "product_id": "desk-lamp", "item_name": "desk-lamp", "status": "claim"}
+
+    def capture_decision(self, order_id: str, decision: str, reason: str | None = None) -> dict[str, object]:
+        return {"order_id": order_id, "decision": decision, "reason": reason, "status": "approved"}
+
 
 class _FailService:
     def __init__(self) -> None:
@@ -100,6 +136,38 @@ def test_integration_endpoints_work_when_service_is_ready(monkeypatch: pytest.Mo
     tracking_result = api.poll_tracking()
     assert tracking_result["source"] == "carrier"
     assert tracking_result["status_changed_count"] == 1
+
+
+def test_storefront_endpoints_work_when_service_is_ready(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(api, "DemoService", _OkService)
+    api._initialize_service()
+
+    storefront = api.storefront_snapshot()
+    assert storefront["recipient_email"] == "demo@example.com"
+
+    seeded = api.seed_storefront_demo()
+    assert seeded["status"] == "seeded"
+
+    order = api.purchase_product("monitor")
+    assert order["order_id"] == "SF-monitor"
+
+    price_drop = api.storefront_price_drop(order_id="SF-monitor", new_price=109.0)
+    assert price_drop["status"] == "price_drop"
+
+    returned = api.storefront_return(order_id="SF-monitor")
+    assert returned["status"] == "return"
+
+    claim = api.storefront_claim(order_id="SF-monitor", claim_type="damaged_item")
+    assert claim["status"] == "claim"
+
+
+def test_decision_capture_endpoint_work_when_service_is_ready(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(api, "DemoService", _OkService)
+    api._initialize_service()
+
+    decision = api.capture_decision(order_id="ORD-1", decision="approve_photo", reason="Looks good.")
+    assert decision["order_id"] == "ORD-1"
+    assert decision["status"] == "approved"
 
 
 def test_gmail_health_uses_service_readiness_when_service_is_ready(monkeypatch: pytest.MonkeyPatch):

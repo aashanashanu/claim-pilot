@@ -8,6 +8,7 @@ This checklist maps the Agents for Humans hackathon requirements to concrete pro
 - Public repository link with all source/assets and run instructions.
 - Open-source license file (MIT or Apache) in repository root.
 - README with setup, usage, architecture, and testing instructions.
+- End-to-end demo guide for setup, pre-demo checks, data creation, and live flows.
 - Architecture diagram included in repo.
 - Public video (<=5 minutes) showing working end-to-end demo and pitch.
 - Devpost text description explaining features and functionality.
@@ -31,5 +32,6 @@ This checklist maps the Agents for Humans hackathon requirements to concrete pro
 - Repo is public and links work from a signed-out browser.
 - Video link is public and playable.
 - README quick-start works from clean clone.
+- End-to-end demo guide works from clean clone and covers the complete live flow.
 - Diagram and testing instructions are discoverable in README.
 - No secrets are committed.

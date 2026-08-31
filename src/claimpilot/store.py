@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
-from .models import AuditRecord, Order, TrackingStatus
+from .models import AuditRecord, Order, StorefrontActivity, StorefrontOrder, StorefrontProduct, TrackingStatus
 
 
 class OrderStore:
@@ -72,3 +72,32 @@ class DeadLetterStore:
 
     def all(self) -> list[dict[str, str]]:
         return list(self._entries)
+
+
+class StorefrontStore:
+    def __init__(self) -> None:
+        self._products: dict[str, StorefrontProduct] = {}
+        self._orders: dict[str, StorefrontOrder] = {}
+        self._activities: list[StorefrontActivity] = []
+
+    def seed_products(self, products: list[StorefrontProduct]) -> None:
+        for product in products:
+            self._products[product.product_id] = product
+
+    def products(self) -> list[StorefrontProduct]:
+        return list(self._products.values())
+
+    def upsert_order(self, order: StorefrontOrder) -> None:
+        self._orders[order.order_id] = order
+
+    def get_order(self, order_id: str) -> StorefrontOrder:
+        return self._orders[order_id]
+
+    def orders(self) -> list[StorefrontOrder]:
+        return list(self._orders.values())
+
+    def add_activity(self, activity: StorefrontActivity) -> None:
+        self._activities.append(activity)
+
+    def activities(self) -> list[StorefrontActivity]:
+        return list(self._activities)

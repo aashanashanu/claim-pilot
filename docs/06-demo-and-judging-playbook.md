@@ -2,6 +2,8 @@
 
 ## Video Structure (<=5 min)
 
+Use [docs/08-end-to-end-demo-guide.md](docs/08-end-to-end-demo-guide.md) for the exact setup and demo sequence.
+
 1. Problem (30-45s)
 - Post-purchase claim friction and missed reimbursements.
 - Why users need silent automation with selective interruption.
@@ -25,8 +27,8 @@
 ## Judge-Mode Dry Run
 
 - Clone from public repo in clean environment.
-- Follow README quick start exactly.
-- Run tests and demo seed path.
+- Follow README quick start and [docs/08-end-to-end-demo-guide.md](docs/08-end-to-end-demo-guide.md) exactly.
+- Run tests, seed the storefront, ingest Gmail, and capture one human decision.
 - Validate architecture doc and submission links.
 
 ## Talking Points for Likely Judge Questions

@@ -9,6 +9,7 @@ This repository contains the MVP backend, a React demo dashboard, and the AWS de
 - Event-driven core pipeline with `OrderDetected`, `StatusChanged`, `AutoResolve`, and `NeedsDecision`
 - Decision table for the three locked MVP beats: price drop, damaged item, return window closing
 - React-powered desktop/demo dashboard connected to the backend API
+- Gmail-backed storefront demo flow that sends real order/status mail and exposes human decision capture
 - FastAPI API for live scenario triggering and audit snapshot reads
 - Cost-optimized AWS deployment path using App Runner, S3, CloudFront, and ECR
 - Focused automated tests for the backend demo service and dashboard logic
@@ -29,6 +30,8 @@ This repository contains the MVP backend, a React demo dashboard, and the AWS de
 - Phase 0 Step 1 artifact: [docs/05-phase-0-step-1-scope-freeze.md](docs/05-phase-0-step-1-scope-freeze.md)
 - Demo and judging playbook: [docs/06-demo-and-judging-playbook.md](docs/06-demo-and-judging-playbook.md)
 - AWS demo deployment guide: [docs/07-aws-demo-deployment.md](docs/07-aws-demo-deployment.md)
+- End-to-end demo guide: [docs/08-end-to-end-demo-guide.md](docs/08-end-to-end-demo-guide.md)
+- AWS infrastructure architecture: [docs/09-aws-infra-architecture.md](docs/09-aws-infra-architecture.md)
 
 ## Quick Start
 
@@ -63,6 +66,19 @@ Default API URL:
 VITE_API_BASE=http://localhost:8000
 ```
 
+For the live runtime, configure Gmail send/read credentials and the target inbox before starting the API:
+
+```bash
+export AWS_ACCESS_KEY_ID=your-access-key-id
+export AWS_SECRET_ACCESS_KEY=your-secret-access-key
+export AWS_REGION=us-west-2
+export GMAIL_CREDENTIALS_FILE=/absolute/path/to/google-client-secret.json
+export GMAIL_TOKEN_FILE=/absolute/path/to/.gmail-token.json
+export CLAIMPILOT_GMAIL_TARGET_ADDRESS=your-demo-inbox@example.com
+```
+
+Follow [docs/08-end-to-end-demo-guide.md](docs/08-end-to-end-demo-guide.md) for a fresh demo environment and a full run from seed to human decision capture.
+
 Phase 2 Gmail ingestion endpoint:
 
 ```bash
@@ -70,7 +86,7 @@ Phase 2 Gmail ingestion endpoint:
 export GMAIL_CREDENTIALS_FILE=/absolute/path/to/google-client-secret.json
 export GMAIL_TOKEN_FILE=/absolute/path/to/.gmail-token.json
 
-# Ingest real Gmail inbox messages (read-only scope)
+# Ingest real Gmail inbox messages (read-only scope). This is optional backfill/debug only because the backend now watches Gmail automatically.
 curl -X POST "http://localhost:8000/integrations/email/gmail/ingest?user_id=user-demo&max_results=3"
 
 # Validate Gmail token/dependency readiness
@@ -99,12 +115,22 @@ chmod +x scripts/deploy-demo.sh
 ./scripts/deploy-demo.sh
 ```
 
+Before deploying, copy the Terraform example vars file and fill in the runtime secret JSON that Terraform will store in Secrets Manager:
+
+```bash
+cp infra/aws/terraform.tfvars.example infra/aws/terraform.tfvars
+```
+
+Then edit [infra/aws/terraform.tfvars](infra/aws/terraform.tfvars) with the real AWS, Gmail, and Bedrock values.
+
 Or use Terraform directly:
 
 ```bash
 terraform -chdir=infra/aws init
 terraform -chdir=infra/aws apply
 ```
+
+Terraform owns the full deployment: it creates the ECR repo, Secrets Manager runtime JSON, App Runner backend, CloudFront frontend, and the artifact publish steps that build and sync the frontend/backend.
 
 ## AWS Deployment Architecture
 
@@ -124,9 +150,9 @@ The App Runner container loads the AWS credentials from AWS Secrets Manager, and
 
 - Phase 0: Rules lock and scope freeze
 - Phase 1: Core runtime and decision table
-- Phase 2: Ingestion and carrier tracking
-- Phase 3: Resolution and decisioning workers
-- Phase 4: Demo surface
+- Phase 2: Gmail ingestion, storefront mail generation, and carrier tracking
+- Phase 3: Resolution, notification, and human decision capture
+- Phase 4: Demo surface and operator workflow
 - Phase 5: Testing and hardening
 - Phase 6: Submission packaging
 - Phase 7: Final gate and submit

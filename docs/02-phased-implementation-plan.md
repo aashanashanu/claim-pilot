@@ -35,27 +35,31 @@ Exit criteria:
 
 ## Phase 2 - Ingestion and Tracking
 
-- Add mailbox ingestion adapter (read-only).
+- Add Gmail ingestion adapter for real inbox messages.
+- Add storefront mail generation so the demo can create its own Gmail order/status traffic.
 - Parse and normalize order metadata.
 - Add single-carrier tracking adapter.
-- Emit status-change events with idempotency keys.
+- Emit status-change events with idempotency keys and dead-letter handling.
 
 Exit criteria:
-- New order detection and status transition flow is reproducible.
+- New order detection, status transition flow, and retryable carrier failures are reproducible.
 
 ## Phase 3 - Resolution and Human Decisioning
 
 - Implement auto-resolution worker.
 - Implement notification worker and user decision capture path.
+- Expose a capture API and dashboard controls for approve/reject.
 - Enforce thresholds and evidence checks.
 
 Exit criteria:
 - All 3 demo beats execute through the decision branch and audit log.
+- Decision capture updates state, pending counts, and audit history consistently.
 
 ## Phase 4 - Demo Surface
 
-- Build minimal dashboard for orders, pending decisions, and audit timeline.
+- Build minimal dashboard for storefront orders, pending decisions, and audit timeline.
 - Add deterministic scenario triggers.
+- Provide storefront controls for buy, price-drop, return, and claim demo actions.
 
 Exit criteria:
 - End-to-end demo flow runs on demand with no manual patching.

@@ -12,6 +12,8 @@
 
 **One-liner:** ClaimPilot watches every order you place, silently resolves the stuff that doesn't need you, and pings you — once, with a clear choice — only when it genuinely can't decide without you.
 
+> Current repo state note: the implementation now uses a Gmail-backed storefront demo and an explicit decision-capture UI. For the operational runbook, use [docs/08-end-to-end-demo-guide.md](docs/08-end-to-end-demo-guide.md).
+
 ---
 
 ## End-to-End Workflow

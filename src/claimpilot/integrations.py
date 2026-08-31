@@ -2,14 +2,20 @@ from __future__ import annotations
 
 import base64
 import os
+import tempfile
+from email.mime.text import MIMEText
 from datetime import datetime, timezone
 from typing import Protocol
 
+from .config import runtime_secret_value
 from .models import MailMessage, TrackingUpdate
 
 
 class GmailMessageAdapter(Protocol):
     def fetch_messages(self, user_id: str, max_results: int = 5) -> list[MailMessage]:
+        ...
+
+    def send_message(self, recipient_email: str, subject: str, body: str) -> str:
         ...
 
 
@@ -19,6 +25,7 @@ class CarrierStatusAdapter(Protocol):
 
 
 GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 
 
 class GmailInboxAdapter:
@@ -31,26 +38,41 @@ class GmailInboxAdapter:
         gmail_token_file: str | None = None,
         gmail_query: str | None = None,
     ) -> None:
+        self.gmail_credentials_json = os.getenv("GMAIL_CREDENTIALS_JSON") or runtime_secret_value("gmail_credentials_json")
+        self.gmail_token_json = os.getenv("GMAIL_TOKEN_JSON") or runtime_secret_value("gmail_token_json")
         self.gmail_credentials_file = gmail_credentials_file or os.getenv("GMAIL_CREDENTIALS_FILE")
-        self.gmail_token_file = gmail_token_file or os.getenv("GMAIL_TOKEN_FILE") or ".gmail-token.json"
-        self.gmail_query = gmail_query or os.getenv("CLAIMPILOT_GMAIL_QUERY") or "newer_than:14d"
+        self.gmail_token_file = gmail_token_file or os.getenv("GMAIL_TOKEN_FILE")
+        self.gmail_query = gmail_query or os.getenv("CLAIMPILOT_GMAIL_QUERY") or runtime_secret_value("gmail_query") or "newer_than:14d"
 
-    def _build_service(self, *, allow_interactive: bool = False):
+        if not self.gmail_credentials_file and self.gmail_credentials_json:
+            self.gmail_credentials_file = self._write_temp_json(self.gmail_credentials_json, "gmail-credentials")
+
+        if not self.gmail_token_file and self.gmail_token_json:
+            self.gmail_token_file = self._write_temp_json(self.gmail_token_json, "gmail-token")
+
+        if not self.gmail_token_file:
+            self.gmail_token_file = ".gmail-token.json"
+
+    def _write_temp_json(self, contents: str, prefix: str) -> str:
+        with tempfile.NamedTemporaryFile("w", prefix=f"claimpilot-{prefix}-", suffix=".json", delete=False, encoding="utf-8") as temp_file:
+            temp_file.write(contents)
+            return temp_file.name
+
+    def _load_credentials(self, *, allow_interactive: bool = False):
         try:
             from google.auth.transport.requests import Request
             from google.oauth2.credentials import Credentials
             from google_auth_oauthlib.flow import InstalledAppFlow
-            from googleapiclient.discovery import build
         except ModuleNotFoundError as exc:
             raise RuntimeError(
                 "Google API dependencies are missing. Install google-api-python-client, "
                 "google-auth, and google-auth-oauthlib."
             ) from exc
 
-        scopes = [GMAIL_READONLY_SCOPE]
+        scopes = [GMAIL_READONLY_SCOPE, GMAIL_SEND_SCOPE]
         creds = None
 
-        if os.path.exists(self.gmail_token_file):
+        if self.gmail_token_file and os.path.exists(self.gmail_token_file):
             creds = Credentials.from_authorized_user_file(self.gmail_token_file, scopes)
 
         if creds and creds.expired and creds.refresh_token:
@@ -74,6 +96,28 @@ class GmailInboxAdapter:
             with open(self.gmail_token_file, "w", encoding="utf-8") as token_file:
                 token_file.write(creds.to_json())
 
+        granted_scopes = set(creds.scopes or [])
+        required_scopes = {GMAIL_READONLY_SCOPE, GMAIL_SEND_SCOPE}
+        missing_scopes = required_scopes - granted_scopes
+        if missing_scopes:
+            raise RuntimeError(
+                "Gmail credentials are missing Gmail scopes: "
+                + ", ".join(sorted(missing_scopes))
+                + ". Re-run OAuth with read and send access enabled."
+            )
+
+        return creds
+
+    def _build_service(self, *, allow_interactive: bool = False):
+        try:
+            from googleapiclient.discovery import build
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "Google API dependencies are missing. Install google-api-python-client, "
+                "google-auth, and google-auth-oauthlib."
+            ) from exc
+
+        creds = self._load_credentials(allow_interactive=allow_interactive)
         return build("gmail", "v1", credentials=creds)
 
     def _decode_body_data(self, data: str) -> str:
@@ -112,27 +156,33 @@ class GmailInboxAdapter:
             "status": "error",
             "code": "GMAIL_NOT_READY",
             "message": "Gmail integration is not configured.",
-            "scope": GMAIL_READONLY_SCOPE,
+            "scopes": [GMAIL_READONLY_SCOPE, GMAIL_SEND_SCOPE],
             "credentials_file": self.gmail_credentials_file,
             "token_file": self.gmail_token_file,
             "query": self.gmail_query,
             "dependencies_installed": False,
             "credentials_file_exists": bool(self.gmail_credentials_file and os.path.exists(self.gmail_credentials_file)),
             "token_file_exists": bool(self.gmail_token_file and os.path.exists(self.gmail_token_file)),
+            "send_ready": False,
         }
 
         try:
+            creds = self._load_credentials(allow_interactive=False)
             service = self._build_service(allow_interactive=False)
             profile = service.users().getProfile(userId="me").execute()
+            granted_scopes = set(creds.scopes or [])
             status.update(
                 {
                     "status": "ok",
                     "code": "GMAIL_READY",
                     "message": "Gmail integration is configured and token is valid.",
                     "dependencies_installed": True,
+                    "send_ready": GMAIL_SEND_SCOPE in granted_scopes,
+                    "read_ready": GMAIL_READONLY_SCOPE in granted_scopes,
                     "email_address": profile.get("emailAddress"),
                     "messages_total": profile.get("messagesTotal"),
                     "threads_total": profile.get("threadsTotal"),
+                    "granted_scopes": sorted(granted_scopes),
                 }
             )
             return status
@@ -145,6 +195,8 @@ class GmailInboxAdapter:
                 status["code"] = "GMAIL_TOKEN_MISSING_OR_INVALID"
             elif "client credentials file" in message:
                 status["code"] = "GMAIL_CREDENTIALS_MISSING"
+            elif "missing Gmail scopes" in message:
+                status["code"] = "GMAIL_SCOPE_MISSING"
             return status
         except Exception as exc:
             status.update(
@@ -208,3 +260,15 @@ class GmailInboxAdapter:
             )
 
         return messages
+
+    def send_message(self, recipient_email: str, subject: str, body: str) -> str:
+        service = self._build_service(allow_interactive=False)
+        mime_message = MIMEText(body)
+        mime_message["to"] = recipient_email
+        mime_message["subject"] = subject
+        raw = base64.urlsafe_b64encode(mime_message.as_bytes()).decode("utf-8")
+        response = service.users().messages().send(userId="me", body={"raw": raw}).execute()
+        message_id = response.get("id")
+        if not isinstance(message_id, str) or not message_id:
+            raise RuntimeError("Gmail send succeeded but no message id was returned.")
+        return message_id

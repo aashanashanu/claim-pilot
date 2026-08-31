@@ -63,6 +63,11 @@ class StubCarrierAdapter:
         )
 
 
+class FailingCarrierAdapter:
+    def fetch_status(self, order_id: str, tracking_number: str):
+        raise RuntimeError(f"carrier outage for {order_id}")
+
+
 def test_mock_gmail_ingest_emits_orders_and_events():
     service = DemoService(
         dashboard=DemoDashboard(decision_engine=_mock_engine()),
@@ -79,6 +84,20 @@ def test_mock_gmail_ingest_emits_orders_and_events():
     snapshot = service.snapshot()
     assert snapshot["active_orders"] >= 2
     assert any(record["action"] == "order_detected" for record in snapshot["audit_records"])
+
+
+def test_automatic_gmail_poll_path_ingests_messages_without_manual_endpoint():
+    service = DemoService(
+        dashboard=DemoDashboard(decision_engine=_mock_engine()),
+        gmail_adapter=StubGmailAdapter(),
+    )
+
+    result = service.poll_gmail_inbox(user_id="user-int", max_results=1)
+
+    assert result["watch_mode"] == "background"
+    assert result["ingested"] == 1
+    snapshot = service.snapshot()
+    assert snapshot["active_orders"] >= 1
 
 
 def test_mock_tracking_poll_emits_status_changed_and_decision_flow():
@@ -99,3 +118,18 @@ def test_mock_tracking_poll_emits_status_changed_and_decision_flow():
     actions = [item["action"] for item in snapshot["audit_records"]]
     assert "exception_classified" in actions
     assert "needs_decision" in actions
+
+
+def test_tracking_poll_records_dead_letters_for_retryable_carrier_failures():
+    service = DemoService(
+        dashboard=DemoDashboard(decision_engine=_mock_engine()),
+        gmail_adapter=StubGmailAdapter(),
+        carrier_adapter=FailingCarrierAdapter(),
+    )
+    service.ingest_gmail_messages(user_id="user-int", max_results=1)
+
+    result = service.poll_tracking()
+
+    assert result["status_changed_count"] == 0
+    assert result["dead_letters"]
+    assert result["dead_letters"][0]["status"] == "retry"

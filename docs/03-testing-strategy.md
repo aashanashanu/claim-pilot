@@ -26,10 +26,12 @@ Scope:
 - OrderDetected -> StatusChanged -> AutoResolve/NeedsDecision routing.
 - Audit log entries for each transition.
 - Adapter boundary mocks for mailbox/carrier/storefront APIs.
+- Decision capture endpoint and dashboard-facing pending decision state.
 
 Pass criteria:
 - All expected events published once.
 - Audit timeline matches expected state machine progression.
+- Decision submissions update the audit log and pending count exactly once.
 
 ### End-to-End Demo Tests
 
@@ -42,6 +44,11 @@ Scenario B: Damaged item decision
 - Expect pending decision event.
 - Submit photo decision payload.
 - Expect completed claim action.
+
+Scenario B2: Human decision capture
+- Seed a pending decision from damaged-item or return-window flow.
+- Approve or reject through the API/UI.
+- Expect `decision_captured` audit entry and pending count to drop to zero.
 
 Scenario C: Return-window closing
 - Seed order near deadline.
@@ -75,6 +82,7 @@ Pass criteria:
 ```bash
 pytest
 python -m claimpilot.demo_seed
+pytest tests/test_phase2_integrations.py tests/test_phase3_decision_capture.py tests/test_storefront.py
 ```
 
 Future commands (as adapters are added):

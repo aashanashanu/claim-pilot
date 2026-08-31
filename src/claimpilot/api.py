@@ -31,6 +31,15 @@ def _initialize_service() -> None:
 @app.on_event("startup")
 def startup_event() -> None:
     _initialize_service()
+    if app.state.service is not None:
+        app.state.service.start_background_workers()
+
+
+@app.on_event("shutdown")
+def shutdown_event() -> None:
+    service = app.state.service
+    if service is not None:
+        service.stop_background_workers()
 
 
 def _require_service() -> DemoService:
@@ -97,3 +106,45 @@ def gmail_health() -> dict[str, object]:
 def poll_tracking() -> dict[str, object]:
     service = _require_service()
     return service.poll_tracking()
+
+
+@app.get("/storefront")
+def storefront_snapshot() -> dict[str, object]:
+    service = _require_service()
+    return service.storefront_snapshot()
+
+
+@app.post("/storefront/seed-demo")
+def seed_storefront_demo() -> dict[str, object]:
+    service = _require_service()
+    return service.seed_storefront_demo()
+
+
+@app.post("/storefront/orders/{product_id}")
+def purchase_product(product_id: str, recipient_email: str | None = None) -> dict[str, object]:
+    service = _require_service()
+    return service.purchase_product(product_id=product_id, recipient_email=recipient_email)
+
+
+@app.post("/storefront/orders/{order_id}/price-drop")
+def storefront_price_drop(order_id: str, new_price: float) -> dict[str, object]:
+    service = _require_service()
+    return service.price_drop(order_id=order_id, new_price=new_price)
+
+
+@app.post("/storefront/orders/{order_id}/return")
+def storefront_return(order_id: str) -> dict[str, object]:
+    service = _require_service()
+    return service.start_return(order_id=order_id)
+
+
+@app.post("/storefront/orders/{order_id}/claim")
+def storefront_claim(order_id: str, claim_type: str = "damaged_item") -> dict[str, object]:
+    service = _require_service()
+    return service.file_claim(order_id=order_id, claim_type=claim_type)
+
+
+@app.post("/decisions/{order_id}")
+def capture_decision(order_id: str, decision: str, reason: str | None = None) -> dict[str, object]:
+    service = _require_service()
+    return service.capture_decision(order_id=order_id, decision=decision, reason=reason)

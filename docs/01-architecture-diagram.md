@@ -99,8 +99,14 @@ sequenceDiagram
 ## Phase Mapping
 
 - Phase 1: In-memory pipeline, classifier, audit base.
-- Phase 2: Email ingestion and carrier tracking adapters.
-- Phase 3: Resolution and decision workers with guardrails.
-- Phase 4: Demo UI and scenario triggers.
+- Phase 2: Gmail ingestion, storefront mail generation, and carrier tracking adapters.
+- Phase 3: Resolution, notification, and human decision capture with guardrails.
+- Phase 4: Demo UI, storefront controls, and scenario triggers.
 - Phase 5: Reliability, security, and test hardening.
 - Phase 6-7: Submission packaging and final compliance run.
+
+## Current Demo Surface
+
+- The storefront creates real Gmail order/status mail for the demo inbox.
+- The dashboard exposes pending decisions and approve/reject controls.
+- The API exposes health, Gmail readiness, inbox ingest, tracking poll, storefront actions, and decision capture.

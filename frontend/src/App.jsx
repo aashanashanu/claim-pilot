@@ -19,7 +19,17 @@ function App() {
     orders: [],
     audit_records: [],
   })
+  const [storefront, setStorefront] = useState({
+    recipient_email: '',
+    recipient_email_configured: false,
+    gmail_ready: { status: 'error', code: 'UNKNOWN', message: 'Not loaded yet' },
+    catalog: [],
+    orders: [],
+    activities: [],
+    pending_decision_items: [],
+  })
   const [loading, setLoading] = useState(true)
+  const [storefrontLoading, setStorefrontLoading] = useState(true)
   const [error, setError] = useState('')
 
   const fetchSnapshot = async () => {
@@ -38,9 +48,39 @@ function App() {
     }
   }
 
+  const fetchStorefront = async () => {
+    try {
+      setError('')
+      const response = await fetch(`${API_BASE}/storefront`)
+      if (!response.ok) {
+        throw new Error(`Storefront request failed: ${response.status}`)
+      }
+      const data = await response.json()
+      setStorefront(data)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setStorefrontLoading(false)
+    }
+  }
+
+  const fetchAll = async () => {
+    setLoading(true)
+    setStorefrontLoading(true)
+    await Promise.all([fetchSnapshot(), fetchStorefront()])
+  }
+
   useEffect(() => {
-    fetchSnapshot()
+    fetchAll()
   }, [])
+
+  const storefrontOrdersByProduct = useMemo(() => {
+    const mapping = new Map()
+    for (const order of storefront.orders || []) {
+      mapping.set(order.product_id, order)
+    }
+    return mapping
+  }, [storefront.orders])
 
   const triggerScenario = async (scenario) => {
     setLoading(true)
@@ -57,7 +97,119 @@ function App() {
         last_action: data.action || current.last_action,
         latest_audit: `${data.action}:${data.reason || 'decision processed'}`,
       }))
-      await fetchSnapshot()
+      await fetchAll()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const seedStorefront = async () => {
+    setStorefrontLoading(true)
+    try {
+      setError('')
+      const response = await fetch(`${API_BASE}/storefront/seed-demo`, {
+        method: 'POST',
+      })
+      if (!response.ok) {
+        throw new Error(`Storefront seed failed: ${response.status}`)
+      }
+      await fetchAll()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setStorefrontLoading(false)
+    }
+  }
+
+  const purchaseProduct = async (productId) => {
+    setStorefrontLoading(true)
+    try {
+      setError('')
+      const response = await fetch(`${API_BASE}/storefront/orders/${productId}`, {
+        method: 'POST',
+      })
+      if (!response.ok) {
+        throw new Error(`Purchase request failed: ${response.status}`)
+      }
+      await fetchAll()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setStorefrontLoading(false)
+    }
+  }
+
+  const priceDrop = async (orderId, currentPrice) => {
+    setStorefrontLoading(true)
+    try {
+      setError('')
+      const nextPrice = Math.max(Number(currentPrice || 0) - 20, 1)
+      const response = await fetch(`${API_BASE}/storefront/orders/${orderId}/price-drop?new_price=${nextPrice}`, {
+        method: 'POST',
+      })
+      if (!response.ok) {
+        throw new Error(`Price drop request failed: ${response.status}`)
+      }
+      await fetchAll()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setStorefrontLoading(false)
+    }
+  }
+
+  const startReturn = async (orderId) => {
+    setStorefrontLoading(true)
+    try {
+      setError('')
+      const response = await fetch(`${API_BASE}/storefront/orders/${orderId}/return`, {
+        method: 'POST',
+      })
+      if (!response.ok) {
+        throw new Error(`Return request failed: ${response.status}`)
+      }
+      await fetchAll()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setStorefrontLoading(false)
+    }
+  }
+
+  const fileClaim = async (orderId) => {
+    setStorefrontLoading(true)
+    try {
+      setError('')
+      const response = await fetch(`${API_BASE}/storefront/orders/${orderId}/claim?claim_type=damaged_item`, {
+        method: 'POST',
+      })
+      if (!response.ok) {
+        throw new Error(`Claim request failed: ${response.status}`)
+      }
+      await fetchAll()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setStorefrontLoading(false)
+    }
+  }
+
+  const captureDecision = async (orderId, decision) => {
+    setLoading(true)
+    try {
+      setError('')
+      const response = await fetch(
+        `${API_BASE}/decisions/${orderId}?decision=${encodeURIComponent(decision)}`,
+        {
+          method: 'POST',
+        },
+      )
+      if (!response.ok) {
+        throw new Error(`Decision capture failed: ${response.status}`)
+      }
+      await fetchAll()
     } catch (err) {
       setError(err.message)
     } finally {
@@ -118,10 +270,130 @@ function App() {
         <main className="panel main">
           <div className="main-header">
             <div className="header-title">Operations overview</div>
-            <button type="button" className="refresh-button" onClick={fetchSnapshot}>
+            <button type="button" className="refresh-button" onClick={fetchAll}>
               Refresh
             </button>
           </div>
+
+          <section className="storefront-section">
+            <div className="storefront-header">
+              <div>
+                <h3>Storefront demo</h3>
+                <p>
+                  Real Gmail order mails are sent from the storefront to{' '}
+                  <strong>{storefront.recipient_email || 'configure CLAIMPILOT_GMAIL_TARGET_ADDRESS'}</strong>.
+                </p>
+              </div>
+              <button type="button" className="refresh-button" disabled={storefrontLoading} onClick={seedStorefront}>
+                Seed demo storefront
+              </button>
+            </div>
+
+            <div className="storefront-status-row">
+              <span className={`badge ${storefront.gmail_ready?.status === 'ok' ? '' : 'needs_decision'}`}>
+                Gmail: {storefront.gmail_ready?.code || 'UNKNOWN'}
+              </span>
+              <span className="muted-inline">
+                {storefront.gmail_ready?.message || 'Gmail readiness unavailable'}
+              </span>
+            </div>
+
+            <div className="storefront-grid">
+              {(storefront.catalog || []).length === 0 ? (
+                <div className="storefront-empty">No storefront products yet.</div>
+              ) : (
+                (storefront.catalog || []).map((product) => {
+                  const order = storefrontOrdersByProduct.get(product.product_id)
+                  return (
+                    <article className="storefront-card" key={product.product_id}>
+                      <div className="storefront-card-top">
+                        <div>
+                          <h4>{product.name}</h4>
+                          <p>{product.description}</p>
+                        </div>
+                        <span className={`badge ${order ? '' : 'needs_decision'}`}>
+                          {order ? order.status : 'ready'}
+                        </span>
+                      </div>
+
+                      <div className="storefront-meta">
+                        <span>${Number(product.price || 0).toFixed(2)}</span>
+                        <span>{product.return_window_days} day return window</span>
+                      </div>
+
+                      <div className="storefront-actions">
+                        <button type="button" className="action-button" disabled={storefrontLoading} onClick={() => purchaseProduct(product.product_id)}>
+                          Buy
+                        </button>
+                        <button
+                          type="button"
+                          className="action-button subtle"
+                          disabled={storefrontLoading || !order}
+                          onClick={() => priceDrop(order?.order_id, order?.current_price)}
+                        >
+                          Price drop
+                        </button>
+                        <button
+                          type="button"
+                          className="action-button subtle"
+                          disabled={storefrontLoading || !order}
+                          onClick={() => startReturn(order?.order_id)}
+                        >
+                          Return
+                        </button>
+                        <button
+                          type="button"
+                          className="action-button subtle"
+                          disabled={storefrontLoading || !order}
+                          onClick={() => fileClaim(order?.order_id)}
+                        >
+                          Claim
+                        </button>
+                      </div>
+
+                      {order ? (
+                        <div className="storefront-order-note">
+                          Order {order.order_id} sent as {order.email_kind} mail to {order.recipient_email}.
+                        </div>
+                      ) : (
+                        <div className="storefront-order-note">No order created yet.</div>
+                      )}
+                    </article>
+                  )
+                })
+              )}
+            </div>
+
+            <div className="storefront-order-table">
+              <h4>Recent storefront orders</h4>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Order</th>
+                    <th>Item</th>
+                    <th>Status</th>
+                    <th>Mail</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(storefront.orders || []).length === 0 ? (
+                    <tr>
+                      <td colSpan="4">Seed the storefront to create real Gmail order mails.</td>
+                    </tr>
+                  ) : (
+                    (storefront.orders || []).map((order) => (
+                      <tr key={order.order_id}>
+                        <td>{order.order_id}</td>
+                        <td>{order.item_name}</td>
+                        <td>{order.status}</td>
+                        <td>{order.email_kind}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
 
           <div className="metrics-row">
             <div className="metric-card">
@@ -135,6 +407,52 @@ function App() {
             <div className="metric-card">
               <h3>Order flow</h3>
               <strong>{snapshot.active_orders}</strong>
+            </div>
+          </div>
+
+          <div className="table-card" style={{ marginTop: '18px' }}>
+            <div className="main-header" style={{ marginBottom: '12px' }}>
+              <h3>Pending decisions</h3>
+              <span className="badge needs_decision">{snapshot.pending_decisions || 0} open</span>
+            </div>
+            <div className="pending-grid">
+              {(snapshot.pending_decision_items || []).length === 0 ? (
+                <div className="timeline-item">No pending decisions right now.</div>
+              ) : (
+                (snapshot.pending_decision_items || []).map((item) => (
+                  <article className="pending-card" key={item.order_id}>
+                    <div className="storefront-card-top">
+                      <div>
+                        <h4>{item.order_id}</h4>
+                        <p>{item.details}</p>
+                      </div>
+                      <span className="badge needs_decision">{item.status}</span>
+                    </div>
+                    <div className="storefront-meta">
+                      <span>User {item.user_id}</span>
+                      <span>{item.created_at || 'recent'}</span>
+                    </div>
+                    <div className="storefront-actions">
+                      <button
+                        type="button"
+                        className="action-button"
+                        disabled={loading}
+                        onClick={() => captureDecision(item.order_id, 'approve_photo')}
+                      >
+                        Approve
+                      </button>
+                      <button
+                        type="button"
+                        className="action-button subtle"
+                        disabled={loading}
+                        onClick={() => captureDecision(item.order_id, 'reject')}
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </article>
+                ))
+              )}
             </div>
           </div>
 
