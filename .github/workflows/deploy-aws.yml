@@ -15,6 +15,7 @@ permissions:
 
 jobs:
   deploy:
+    environment: test
     runs-on: ubuntu-latest
     env:
       TF_IN_AUTOMATION: "true"
