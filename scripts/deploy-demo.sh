@@ -13,7 +13,7 @@ fi
 
 TF_VARS_FILE="$(cd "$(dirname "$TF_VARS_FILE")" && pwd)/$(basename "$TF_VARS_FILE")"
 
-terraform -chdir=infra/aws init
+bash scripts/tf-init-remote.sh
 terraform -chdir=infra/aws apply -var-file="$TF_VARS_FILE"
 
 printf '\nDeployment complete. Use the Terraform outputs for the CloudFront and App Runner URLs.\n'

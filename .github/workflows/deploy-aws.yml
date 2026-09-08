@@ -107,7 +107,10 @@ jobs:
           EOF
 
       - name: Terraform Init
-        run: terraform -chdir=infra/aws init
+        run: bash scripts/tf-init-remote.sh
+
+      - name: Reconcile existing AWS resources into state
+        run: bash scripts/tf-reconcile-state.sh
 
       - name: Terraform Apply
         run: terraform -chdir=infra/aws apply -auto-approve

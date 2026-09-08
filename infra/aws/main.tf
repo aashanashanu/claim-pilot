@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.5.0"
+  required_version = ">= 1.10.0"
 
   required_providers {
     aws = {
@@ -7,6 +7,10 @@ terraform {
       version = "~> 5.0"
     }
   }
+
+  # Bucket/key/region are supplied at `terraform init` time via -backend-config
+  # (see scripts/tf-init-remote.sh) so state persists across CI runs.
+  backend "s3" {}
 }
 
 provider "aws" {
