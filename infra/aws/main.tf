@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.5.0"
+  required_version = ">= 1.10.0"
 
   required_providers {
     aws = {
@@ -7,6 +7,10 @@ terraform {
       version = "~> 5.0"
     }
   }
+
+  # Bucket/key/region are supplied at `terraform init` time via -backend-config
+  # (see scripts/tf-init-remote.sh) so state persists across CI runs.
+  backend "s3" {}
 }
 
 provider "aws" {
@@ -42,7 +46,8 @@ resource "null_resource" "backend_artifact" {
   }
 
   provisioner "local-exec" {
-    command = <<-EOT
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
       set -euo pipefail
       aws ecr get-login-password --region "${var.aws_region}" | docker login --username AWS --password-stdin "${split("/", module.ecr.repository_url)[0]}"
       docker build -t "${var.ecr_repository_name}:latest" "${local.backend_build}"

@@ -1,7 +1,11 @@
-name: Deploy ClaimPilot to AWS
+name: Destroy ClaimPilot AWS Stack
 
 on:
   workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "destroy" to confirm tearing down the AWS demo stack'
+        required: true
 
 concurrency:
   group: claimpilot-aws-deploy
@@ -11,7 +15,7 @@ permissions:
   contents: read
 
 jobs:
-  deploy:
+  destroy:
     environment: test
     runs-on: ubuntu-latest
     env:
@@ -31,6 +35,15 @@ jobs:
       GMAIL_QUERY: ${{ secrets.GMAIL_QUERY }}
 
     steps:
+      - name: Require explicit confirmation
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event.inputs.confirm }}" != "destroy" ]]; then
+            echo "Confirmation input must be exactly 'destroy'. Aborting."
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -109,21 +122,10 @@ jobs:
       - name: Reconcile existing AWS resources into state
         run: bash scripts/tf-reconcile-state.sh
 
-      - name: Terraform Apply
-        run: terraform -chdir=infra/aws apply -auto-approve
+      - name: Terraform Destroy
+        run: terraform -chdir=infra/aws destroy -auto-approve
 
-      - name: Capture deployment outputs
-        id: outputs
-        shell: bash
+      - name: Destroy summary
         run: |
-          set -euo pipefail
-          frontend_url="$(terraform -chdir=infra/aws output -raw frontend_url)"
-          backend_url="$(terraform -chdir=infra/aws output -raw backend_url)"
-          echo "frontend_url=${frontend_url}" >> "$GITHUB_OUTPUT"
-          echo "backend_url=${backend_url}" >> "$GITHUB_OUTPUT"
-
-      - name: Deployment summary
-        run: |
-          echo "## ClaimPilot AWS Deployment" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Frontend URL: ${{ steps.outputs.outputs.frontend_url }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Backend URL: ${{ steps.outputs.outputs.backend_url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "## ClaimPilot AWS Stack Destroyed" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Triggered by: ${{ github.actor }}" >> "$GITHUB_STEP_SUMMARY"
