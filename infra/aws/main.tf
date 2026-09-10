@@ -46,7 +46,8 @@ resource "null_resource" "backend_artifact" {
   }
 
   provisioner "local-exec" {
-    command = <<-EOT
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<-EOT
       set -euo pipefail
       aws ecr get-login-password --region "${var.aws_region}" | docker login --username AWS --password-stdin "${split("/", module.ecr.repository_url)[0]}"
       docker build -t "${var.ecr_repository_name}:latest" "${local.backend_build}"
